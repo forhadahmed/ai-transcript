@@ -48,6 +48,8 @@ parser.add_argument('--wide', action='store_true', help='1600px max-width')
 parser.add_argument('--narrow', action='store_true', help='800px max-width')
 parser.add_argument('--font-size', type=int, default=15, help='Base font size in px (default: 15)')
 parser.add_argument('--wrap-code', action='store_true', help='Wrap long lines in code blocks')
+parser.add_argument('--code-font', default='JetBrains Mono',
+                    help='Code font family (default: JetBrains Mono)')
 parser.add_argument('--title', default=None, help='Custom title in header')
 
 # Batch
@@ -93,6 +95,8 @@ if _multi:
             extra_flags.append(f'--{fname.replace("_", "-")}')
     if args.font_size != 15:
         extra_flags += ['--font-size', str(args.font_size)]
+    if args.code_font != 'JetBrains Mono':
+        extra_flags += ['--code-font', args.code_font]
 
     tasks = []
     for jsonl in all_jsonl:
@@ -683,11 +687,12 @@ out.append(f'''<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+{f'<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family={args.code_font.replace(" ", "+")}:wght@400;700&display=swap">' if args.code_font in ("JetBrains Mono", "Fira Code", "Source Code Pro", "IBM Plex Mono", "Roboto Mono", "Ubuntu Mono") else ""}
 <title>{html.escape(args.title) if args.title else f'Transcript — {turn_count} turns'}</title>
 <style>
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
 body {{
-  font-family: 'SF Mono','Cascadia Code','Fira Code','Consolas', monospace;
+  font-family: '{args.code_font}','SF Mono','Cascadia Code','Fira Code','Consolas', monospace;
   background: #fff; color: #1a1a1a; line-height: 1.6; font-size: {args.font_size}px;
 }}
 a {{ color: #0969da; }}
