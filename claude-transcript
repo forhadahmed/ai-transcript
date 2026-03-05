@@ -687,12 +687,13 @@ out.append(f'''<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-{f'<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family={args.code_font.replace(" ", "+")}:wght@400;700&display=swap">' if args.code_font in ("JetBrains Mono", "Fira Code", "Source Code Pro", "IBM Plex Mono", "Roboto Mono", "Ubuntu Mono") else ""}
+{f'<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family={args.code_font.replace(" ", "+")}:wght@300;400;700&display=swap">' if args.code_font in ("JetBrains Mono", "Fira Code", "Source Code Pro", "IBM Plex Mono", "Roboto Mono", "Ubuntu Mono") else ""}
 <title>{html.escape(args.title) if args.title else f'Transcript — {turn_count} turns'}</title>
 <style>
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
 body {{
   font-family: '{args.code_font}','SF Mono','Cascadia Code','Fira Code','Consolas', monospace;
+  font-weight: 300;
   background: #fff; color: #1a1a1a; line-height: 1.6; font-size: {args.font_size}px;
 }}
 a {{ color: #0969da; }}
