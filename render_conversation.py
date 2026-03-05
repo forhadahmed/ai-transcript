@@ -27,12 +27,12 @@ except ImportError:
     USE_CMARK = False
 
 parser = argparse.ArgumentParser(description='Render Claude Code JSONL conversations as HTML')
-parser.add_argument('input', nargs='?', default=(
+parser.add_argument('input', nargs='*', default=[
     "/home/forhad/.claude/projects/-home-forhad/"
     "1a2ee288-0303-4569-ab87-3e725da91aac.jsonl"
-), help='Input JSONL file')
-parser.add_argument('output', nargs='?', default="/home/forhad/public_html/conversation.html",
-                    help='Output HTML file')
+], help='Input JSONL file(s)')
+parser.add_argument('-o', '--output', default=None,
+                    help='Output HTML file (only for single input; ignored in batch/multi mode)')
 
 # Content visibility
 parser.add_argument('--no-thinking', action='store_true', help='Hide thinking blocks')
@@ -62,22 +62,26 @@ parser.add_argument('-j', '--jobs', type=int, default=None,
 
 args = parser.parse_args()
 
-# ── Batch mode: dispatch parallel subprocesses ──
-if args.all or args.recent:
+# ── Batch/multi mode: dispatch parallel subprocesses ──
+_multi = args.all or args.recent or len(args.input) > 1
+if _multi:
     import glob
     import time
     from concurrent.futures import ProcessPoolExecutor, as_completed
 
-    jsonl_root = os.path.expanduser('~/.claude/projects')
-    all_jsonl = sorted(
-        (f for f in glob.glob(f'{jsonl_root}/*/*.jsonl') if os.path.getsize(f) > 1024),
-        key=os.path.getmtime, reverse=True,
-    )
-    if args.recent:
-        all_jsonl = all_jsonl[:args.recent]
+    if args.all or args.recent:
+        jsonl_root = os.path.expanduser('~/.claude/projects')
+        all_jsonl = sorted(
+            (f for f in glob.glob(f'{jsonl_root}/*/*.jsonl') if os.path.getsize(f) > 1024),
+            key=os.path.getmtime, reverse=True,
+        )
+        if args.recent:
+            all_jsonl = all_jsonl[:args.recent]
+    else:
+        all_jsonl = [os.path.abspath(f) for f in args.input]
 
     os.makedirs(args.outdir, exist_ok=True)
-    jobs = args.jobs or min(os.cpu_count() or 4, len(all_jsonl))
+    jobs = args.jobs or min(os.cpu_count() or 4, max(len(all_jsonl), 1))
 
     # Build per-file commands, forwarding display flags
     flag_names = [
@@ -103,7 +107,7 @@ if args.all or args.recent:
 
     def run_one(task):
         jsonl, out_html, sid = task
-        cmd = [sys.executable, __file__] + extra_flags + [jsonl, out_html]
+        cmd = [sys.executable, __file__, '-o', out_html] + extra_flags + [jsonl]
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         size_mb = os.path.getsize(jsonl) / 1_000_000
         if r.returncode == 0:
@@ -111,7 +115,6 @@ if args.all or args.recent:
         else:
             return f'FAIL {sid} ({size_mb:.1f}MB): {r.stderr[-200:]}'
 
-    import subprocess
     results = []
     with ProcessPoolExecutor(max_workers=jobs) as pool:
         futures = {pool.submit(run_one, t): t for t in tasks}
@@ -125,8 +128,8 @@ if args.all or args.recent:
     print(f"\n{ok} ok, {fail} failed — {elapsed:.1f}s ({jobs} workers)")
     sys.exit(1 if fail else 0)
 
-INPUT = args.input
-OUTPUT = args.output
+INPUT = args.input[0]
+OUTPUT = args.output or os.path.expanduser('~/public_html/conversation.html')
 
 if not USE_CMARK:
     MD = markdown.Markdown(extensions=['fenced_code', 'tables', 'nl2br', 'sane_lists'])

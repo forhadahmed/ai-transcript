@@ -36,7 +36,7 @@ def check(name, condition, msg):
 
 def render(jsonl, out_html, extra_args=None):
     """Run the renderer, return (html_string, returncode, stderr)."""
-    cmd = [sys.executable, SCRIPT] + (extra_args or []) + [jsonl, out_html]
+    cmd = [sys.executable, SCRIPT] + (extra_args or []) + [jsonl, '-o', out_html]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     html = ''
     if result.returncode == 0 and os.path.exists(out_html):
@@ -55,7 +55,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 def render_task(jsonl):
     session_id = os.path.basename(jsonl).replace('.jsonl', '')
     out_html = os.path.join(OUT_DIR, f'{session_id}.html')
-    cmd = [sys.executable, SCRIPT, jsonl, out_html]
+    cmd = [sys.executable, SCRIPT, jsonl, '-o', out_html]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     return jsonl, result.returncode, result.stderr
 
