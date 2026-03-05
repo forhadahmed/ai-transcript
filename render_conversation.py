@@ -267,7 +267,7 @@ def render_diff(old, new):
         lines = []
         for l in new.split('\n'):
             lines.append(f'<span class="diff-add">+{html.escape(l)}</span>')
-        return '<pre class="diff-block">' + '\n'.join(lines) + '</pre>'
+        return '<pre class="diff-block">' + ''.join(lines) + '</pre>'
     if not diff:
         return ''
     lines = []
@@ -283,7 +283,7 @@ def render_diff(old, new):
             lines.append(f'<span class="diff-hunk">{raw}</span>')
         else:
             lines.append(f'<span class="diff-ctx">{raw}</span>')
-    content = '\n'.join(lines)
+    content = ''.join(lines)
     if len(content) > 5000:
         # Truncate at a span boundary to avoid unclosed tags
         cut = content.rfind('</span>', 0, 5000)
@@ -886,6 +886,7 @@ pre.err {{ background: #fff5f5; color: #b71c1c; }}
   max-height: 400px; overflow: auto;
   line-height: 1.5;
 }}
+.diff-add, .diff-del, .diff-hunk, .diff-ctx {{ display: block; padding: 0 4px; margin: 0; }}
 .diff-add {{ color: #1a7f37; background: #dafbe1; }}
 .diff-del {{ color: #cf222e; background: #ffebe9; }}
 .diff-hunk {{ color: #6639ba; }}
