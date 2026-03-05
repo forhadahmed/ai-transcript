@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test html-transcript.py against all local Claude conversations."""
+"""Test claude-transcript against all local Claude conversations."""
 
 import os
 import re
@@ -8,7 +8,7 @@ import sys
 import glob
 import json
 
-SCRIPT = os.path.join(os.path.dirname(__file__), 'html-transcript.py')
+SCRIPT = os.path.join(os.path.dirname(__file__), 'claude-transcript')
 JSONL_ROOT = os.path.expanduser('~/.claude/projects')
 OUT_DIR = os.path.expanduser('~/public_html/conversations')
 
