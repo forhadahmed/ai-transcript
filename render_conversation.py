@@ -528,11 +528,15 @@ for item in items:
                 tool_id = block.get('id', '')
                 diff_adds = diff_dels = 0
                 if icon == 'edit':
+                    import difflib
                     inp = block.get('input', {})
-                    old_s = (inp.get('old_string','') or '').splitlines()
-                    new_s = (inp.get('new_string','') or '').splitlines()
-                    diff_adds = max(0, len(new_s) - len(old_s)) if not old_s else len(new_s)
-                    diff_dels = len(old_s)
+                    old_s = (inp.get('old_string','') or '').splitlines(keepends=True)
+                    new_s = (inp.get('new_string','') or '').splitlines(keepends=True)
+                    for dl in difflib.unified_diff(old_s, new_s, lineterm=''):
+                        if dl.startswith('+') and not dl.startswith('+++'):
+                            diff_adds += 1
+                        elif dl.startswith('-') and not dl.startswith('---'):
+                            diff_dels += 1
                 pending_tool = {
                     'kind':'tool_call', 'ts':ts,
                     'summary':s, 'icon':icon,
