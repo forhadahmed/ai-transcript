@@ -732,6 +732,11 @@ a {{ color: #0969da; }}
   display: inline-block; width: 8px; height: 8px;
   background: #d63031; border-radius: 50%;
 }}
+.edit-dot {{
+  display: inline-block; width: 8px; height: 8px;
+  background: linear-gradient(to right, #d63031 50%, #00b894 50%);
+  border-radius: 50%;
+}}
 .tool-count {{
   background: #eee; padding: 1px 6px; border-radius: 3px;
   font-size: 0.9em;
@@ -1206,7 +1211,8 @@ for t in turns:
     if len(user_text) > 160: preview += '…'
 
     out_tokens = t['output_tokens']
-    err_html = '<span class="err-dot"></span>' if has_err else ''
+    has_edit = any(i.get('icon') == 'edit' for i in turn_items if i['kind'] == 'tool_call')
+    err_html = '<span class="err-dot"></span>' if has_err else '<span class="edit-dot"></span>' if has_edit else ''
     trunc_html = '<span class="trunc-badge">truncated</span>' if t.get('truncated') else ''
     tc_html = f'<span class="tool-count">{tc_count} tools</span>' if tc_count else ''
     tok_html = f'<span class="tool-count" style="color:{tok_color(out_tokens)}">{tok_str(out_tokens)}</span>' if out_tokens >= 1000 else ''
