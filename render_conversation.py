@@ -13,14 +13,39 @@ import json  # keep for json.dumps in tool_detail
 import sys
 import html
 import re
+import argparse
 from datetime import datetime
 import markdown
 
-INPUT = sys.argv[1] if len(sys.argv) > 1 else (
+parser = argparse.ArgumentParser(description='Render Claude Code JSONL conversations as HTML')
+parser.add_argument('input', nargs='?', default=(
     "/home/forhad/.claude/projects/-home-forhad/"
     "1a2ee288-0303-4569-ab87-3e725da91aac.jsonl"
-)
-OUTPUT = sys.argv[2] if len(sys.argv) > 2 else "/home/forhad/public_html/conversation.html"
+), help='Input JSONL file')
+parser.add_argument('output', nargs='?', default="/home/forhad/public_html/conversation.html",
+                    help='Output HTML file')
+
+# Content visibility
+parser.add_argument('--no-thinking', action='store_true', help='Hide thinking blocks')
+parser.add_argument('--no-tools', action='store_true', help='Hide tool call sections')
+parser.add_argument('--no-diffs', action='store_true', help='Show only filenames for edits, no diffs')
+parser.add_argument('--no-icons', action='store_true', help='Omit user/claude icons')
+parser.add_argument('--no-compactions', action='store_true', help='Hide compaction boundaries')
+parser.add_argument('--no-gaps', action='store_true', help='Hide time gap separators')
+parser.add_argument('--full-output', action='store_true', help='Show full tool output (no truncation)')
+parser.add_argument('--show-boilerplate', action='store_true', help='Show "file updated" boilerplate results')
+
+# Layout
+parser.add_argument('--expanded', action='store_true', help='All turns expanded by default')
+parser.add_argument('--wide', action='store_true', help='1600px max-width')
+parser.add_argument('--narrow', action='store_true', help='800px max-width')
+parser.add_argument('--font-size', type=int, default=15, help='Base font size in px (default: 15)')
+parser.add_argument('--wrap-code', action='store_true', help='Wrap long lines in code blocks')
+parser.add_argument('--title', default=None, help='Custom title in header')
+
+args = parser.parse_args()
+INPUT = args.input
+OUTPUT = args.output
 
 MD = markdown.Markdown(extensions=['fenced_code', 'tables', 'nl2br', 'sane_lists'])
 
@@ -205,7 +230,7 @@ def tool_detail(block):
         p.append(f'<code>{html.escape(inp.get("file_path",""))}</code>')
         old = inp.get('old_string','')
         new = inp.get('new_string','')
-        if old or new:
+        if (old or new) and not args.no_diffs:
             p.append(render_diff(old, new))
     elif name == 'Agent':
         p.append(f'<div class="dim">{html.escape(inp.get("description",""))}</div>')
@@ -237,6 +262,8 @@ BOILERPLATE_RE = re.compile(
 )
 
 def is_boilerplate_result(text):
+    if args.show_boilerplate:
+        return False
     return bool(BOILERPLATE_RE.match(text.strip()))
 
 # ── Phase 1: Parse JSONL into flat items ──
@@ -429,8 +456,9 @@ for item in items:
                 is_err = bool(block.get('is_error'))
                 rhtml = None
                 if rt.strip() and not is_boilerplate_result(rt):
-                    trunc = rt[:3000]
-                    if len(rt)>3000: trunc += f'\n…({len(rt)} chars)'
+                    limit = len(rt) if args.full_output else 3000
+                    trunc = rt[:limit]
+                    if len(rt)>limit: trunc += f'\n…({len(rt)} chars)'
                     err_cls = ' class="err"' if is_err else ''
                     res_cls = ' err-result' if is_err else ''
                     rhtml = f'<details class="result{res_cls}"><summary>{"Error" if is_err else "Output"} ({len(rt)} chars)</summary><pre{err_cls}>{html.escape(trunc)}</pre></details>'
@@ -561,18 +589,18 @@ out.append(f'''<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Conversation — {turn_count} turns</title>
+<title>{html.escape(args.title) if args.title else f'Conversation — {turn_count} turns'}</title>
 <style>
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
 body {{
   font-family: 'SF Mono','Cascadia Code','Fira Code','Consolas', monospace;
-  background: #fff; color: #1a1a1a; line-height: 1.6; font-size: 15px;
+  background: #fff; color: #1a1a1a; line-height: 1.6; font-size: {args.font_size}px;
 }}
 a {{ color: #0969da; }}
 
 /* Layout */
 .page {{ min-height: 100vh; }}
-.main {{ max-width: 1100px; margin: 0 auto; padding: 20px 32px; }}
+.main {{ max-width: {'1600px' if args.wide else '800px' if args.narrow else '1100px'}; margin: 0 auto; padding: 20px 32px; }}
 
 /* Header */
 .header {{ padding: 20px 0 16px; border-bottom: 1px solid #e0e0e0; margin-bottom: 16px; }}
@@ -654,7 +682,7 @@ a {{ color: #0969da; }}
 pre {{
   background: #f4f4f4; padding: 8px 10px;
   font-size: 0.88em; margin: 5px 0;
-  max-height: 400px; overflow: auto;
+  max-height: 400px; overflow: auto;{"  white-space: pre-wrap; word-wrap: break-word;" if args.wrap_code else ""}
 }}
 code {{ background: #f4f4f4; padding: 1px 4px; font-size: 0.9em; }}
 pre code {{ background: none; padding: 0; }}
@@ -964,7 +992,7 @@ function jumpBottom() {{ window.scrollTo(0, document.body.scrollHeight); }}
 <div class="page">
 <div class="main">
 <div class="header">
-  <h1>Claude Code Conversation</h1>
+  <h1>{html.escape(args.title) if args.title else 'Claude Code Conversation'}</h1>
   <div class="meta">
     <span><b>{turn_count}</b> turns</span>
     <span><b>{total_tool_calls}</b> tool calls</span>
@@ -998,7 +1026,7 @@ for t in turns:
             dt_prev = datetime.fromisoformat(prev_ts.replace('Z', '+00:00'))
             dt_cur = datetime.fromisoformat(cur_ts.replace('Z', '+00:00'))
             gap_ms = (dt_cur - dt_prev).total_seconds() * 1000
-            if gap_ms >= GAP_THRESHOLD_MS:
+            if gap_ms >= GAP_THRESHOLD_MS and not args.no_gaps:
                 # Remove border on previous turn
                 for i in range(len(out) - 1, -1, -1):
                     if '<div class="turn ' in out[i]:
@@ -1011,6 +1039,8 @@ for t in turns:
         prev_ts = cur_ts
 
     if t['type'] == 'compaction':
+        if args.no_compactions:
+            continue
         for i in range(len(out) - 1, -1, -1):
             if '<div class="turn ' in out[i]:
                 out[i] = out[i].replace('<div class="turn ', '<div class="turn before-gap ', 1)
@@ -1046,8 +1076,9 @@ for t in turns:
     user_full_html = md(user_text) if user_text else ''
 
     err_class = ' has-err' if has_err else ''
+    collapse_class = '' if args.expanded else ' collapsed'
     out.append(f'''
-<div class="turn collapsed{err_class}" id="turn-{turn_num}">
+<div class="turn{collapse_class}{err_class}" id="turn-{turn_num}">
   <div class="turn-head" onclick="toggleTurn(this)">
     <span class="turn-num">#{turn_num}</span>
     <span class="turn-preview">{html.escape(preview)}</span>
@@ -1055,7 +1086,8 @@ for t in turns:
   </div>''')
 
     if user_text:
-        uhtml = user_full_html.replace('<p>', f'<p>{ICON_USER}', 1) if user_full_html.startswith('<p>') else ICON_USER + user_full_html
+        icon = ICON_USER if not args.no_icons else ''
+        uhtml = user_full_html.replace('<p>', f'<p>{icon}', 1) if icon and user_full_html.startswith('<p>') else icon + user_full_html
         if t.get('user_is_error'):
             uhtml = f'<div class="error-text">{uhtml}</div>'
         out.append(f'  <div class="turn-user-full">{uhtml}</div>')
@@ -1070,16 +1102,18 @@ for t in turns:
 
         if k == 'reply':
             rhtml = md(item["text"])
-            rhtml = rhtml.replace('<p>', f'<p>{ICON_BOT}', 1) if rhtml.startswith('<p>') else ICON_BOT + rhtml
+            icon = ICON_BOT if not args.no_icons else ''
+            rhtml = rhtml.replace('<p>', f'<p>{icon}', 1) if icon and rhtml.startswith('<p>') else icon + rhtml
             if item.get('is_error'):
                 rhtml = f'<div class="error-text">{rhtml}</div>'
             out.append(f'    <div class="reply">{rhtml}</div>')
             idx += 1
 
         elif k == 'thinking':
-            th = html.escape(item['text'])
-            if len(th) > 2000: th = th[:2000] + f'\n…({len(item["text"])} chars)'
-            out.append(f'    <details class="thinking-block"><summary>Thinking</summary><pre>{th}</pre></details>')
+            if not args.no_thinking:
+                th = html.escape(item['text'])
+                if len(th) > 2000: th = th[:2000] + f'\n…({len(item["text"])} chars)'
+                out.append(f'    <details class="thinking-block"><summary>Thinking</summary><pre>{th}</pre></details>')
             idx += 1
 
         elif k in ('tool_call', 'tool_output'):
@@ -1088,6 +1122,8 @@ for t in turns:
             while idx < len(turn_items) and turn_items[idx]['kind'] in ('tool_call','tool_output'):
                 group.append(turn_items[idx])
                 idx += 1
+            if args.no_tools:
+                continue
             tc_in_group = sum(1 for g in group if g['kind'] == 'tool_call')
             count = tc_in_group or len(group)
             label = 'tool call' if tc_in_group else 'output'
@@ -1101,8 +1137,9 @@ for t in turns:
                 else:
                     # tool_output (from user message results)
                     rt = g['text']
-                    trunc = rt[:3000]
-                    if len(rt)>3000: trunc += f'\n…({len(rt)} chars)'
+                    limit = len(rt) if args.full_output else 3000
+                    trunc = rt[:limit]
+                    if len(rt)>limit: trunc += f'\n…({len(rt)} chars)'
                     is_err = g.get('is_error', False)
                     ecls = ' err-output' if is_err else ''
                     pcls = ' class="err"' if is_err else ''
