@@ -526,11 +526,19 @@ for item in items:
                     resolved.append(pending_tool)
                 s, icon = tool_summary(block)
                 tool_id = block.get('id', '')
+                diff_adds = diff_dels = 0
+                if icon == 'edit':
+                    inp = block.get('input', {})
+                    old_s = (inp.get('old_string','') or '').splitlines()
+                    new_s = (inp.get('new_string','') or '').splitlines()
+                    diff_adds = max(0, len(new_s) - len(old_s)) if not old_s else len(new_s)
+                    diff_dels = len(old_s)
                 pending_tool = {
                     'kind':'tool_call', 'ts':ts,
                     'summary':s, 'icon':icon,
                     'detail': tool_detail(block),
                     'result': None,
+                    'diff_adds': diff_adds, 'diff_dels': diff_dels,
                     'inner_tools': agent_progress.get(tool_id, []),
                 }
 
@@ -732,11 +740,13 @@ a {{ color: #0969da; }}
   display: inline-block; width: 8px; height: 8px;
   background: #d63031; border-radius: 50%;
 }}
-.edit-dot {{
-  display: inline-block; width: 8px; height: 8px;
-  background: linear-gradient(to right, #d63031 50%, #00b894 50%);
-  border-radius: 50%;
+.diff-stat {{
+  font-size: 0.85em; border-radius: 3px;
+  background: #fff; border: 1px solid #d0d7de; white-space: nowrap;
+  display: inline-flex;
 }}
+.diff-stat .da {{ color: #1a7f37; padding: 1px 5px; }}
+.diff-stat .dd {{ color: #cf222e; padding: 1px 5px; border-left: 1px solid #d0d7de; }}
 .tool-count {{
   background: #eee; padding: 1px 6px; border-radius: 3px;
   font-size: 0.9em;
@@ -1211,8 +1221,10 @@ for t in turns:
     if len(user_text) > 160: preview += '…'
 
     out_tokens = t['output_tokens']
-    has_edit = any(i.get('icon') == 'edit' for i in turn_items if i['kind'] == 'tool_call')
-    err_html = '<span class="err-dot"></span>' if has_err else '<span class="edit-dot"></span>' if has_edit else ''
+    total_adds = sum(i.get('diff_adds', 0) for i in turn_items if i['kind'] == 'tool_call')
+    total_dels = sum(i.get('diff_dels', 0) for i in turn_items if i['kind'] == 'tool_call')
+    diff_stat_html = f'<span class="diff-stat"><span class="da">+{total_adds}</span> <span class="dd">-{total_dels}</span></span>' if total_adds or total_dels else ''
+    err_html = '<span class="err-dot"></span>' if has_err else ''
     trunc_html = '<span class="trunc-badge">truncated</span>' if t.get('truncated') else ''
     tc_html = f'<span class="tool-count">{tc_count} tools</span>' if tc_count else ''
     tok_html = f'<span class="tool-count" style="color:{tok_color(out_tokens)}">{tok_str(out_tokens)}</span>' if out_tokens >= 1000 else ''
@@ -1227,7 +1239,7 @@ for t in turns:
   <div class="turn-head" onclick="toggleTurn(this)">
     <span class="turn-num">#{turn_num}</span>
     <span class="turn-preview">{html.escape(preview)}</span>
-    <span class="turn-meta">{err_html}{trunc_html}{tc_html}{tok_html}<span>{time_html}</span></span>
+    <span class="turn-meta">{err_html}{diff_stat_html}{trunc_html}{tc_html}{tok_html}<span>{time_html}</span></span>
   </div>''')
 
     if user_text:
