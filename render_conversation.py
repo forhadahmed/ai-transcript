@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
 """Render a Claude Code conversation JSONL as HTML — v2 with turn-based layout."""
 
-import json
+try:
+    import orjson
+    def json_loads(s):
+        return orjson.loads(s)
+except ImportError:
+    import json
+    json_loads = json.loads
+
+import json  # keep for json.dumps in tool_detail
 import sys
 import html
 import re
@@ -44,22 +52,25 @@ def extract_fenced_blocks(text):
     )
     return cleaned, placeholders
 
+NEEDS_MD_RE = re.compile(r'[*_#`\[|>\n]')
+
 def md(text):
+    # Fast path: plain text with no markdown syntax
+    if not NEEDS_MD_RE.search(text):
+        return f'<p>{html.escape(text)}</p>'
     MD.reset()
     text, placeholders = extract_fenced_blocks(text)
     result = MD.convert(text)
     for key, replacement in placeholders.items():
-        # The placeholder might be wrapped in <p> tags by markdown
         result = result.replace(f'<p>{key}</p>', replacement)
         result = result.replace(key, replacement)
     # Strip stray backtick fences outside of <pre>/<code> blocks
-    def strip_stray_fences(html_str):
-        parts = re.split(r'(<pre[^>]*>.*?</pre>|<code[^>]*>.*?</code>)', html_str, flags=re.DOTALL)
+    if '```' in result:
+        parts = re.split(r'(<pre[^>]*>.*?</pre>|<code[^>]*>.*?</code>)', result, flags=re.DOTALL)
         for i, part in enumerate(parts):
             if not part.startswith('<pre') and not part.startswith('<code'):
                 parts[i] = re.sub(r'`{3,}\w*', '', part)
-        return ''.join(parts)
-    result = strip_stray_fences(result)
+        result = ''.join(parts)
     return result
 
 def ts_fmt(ts_str):
@@ -107,7 +118,7 @@ def tok_color(n):
     return '#888'                     # gray — light
 
 ICON_USER = '<svg class="turn-icon" viewBox="0 0 24 24" fill="none" stroke="#0969da" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'
-ICON_BOT = '<svg class="turn-icon" viewBox="0 0 24 24" fill="none" stroke="#2e7d32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="10" x="3" y="11" rx="2"/><circle cx="9" cy="16" r="1" fill="#2e7d32"/><circle cx="15" cy="16" r="1" fill="#2e7d32"/><path d="M12 7v4"/><circle cx="12" cy="5" r="2"/></svg>'
+ICON_BOT = '<img class="turn-icon" src="data:image/png;base64,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">'
 
 # ── Tool call helpers ──
 
@@ -215,6 +226,11 @@ def extract_result_text(block):
         return '\n'.join(b.get('text','') for b in rc if isinstance(b,dict))
     return str(rc) if rc else ''
 
+ERROR_TEXT_RE = re.compile(
+    r'^\[Request interrupted by user.*\]$|^API Error[:{ ]',
+    re.MULTILINE
+)
+
 BOILERPLATE_RE = re.compile(
     r'^(The file \S+ has been (updated|created) successfully\.|'
     r'\S+ is now available for use\.)$'
@@ -233,7 +249,7 @@ agent_progress = {}  # parentToolUseID -> list of inner tool calls
 with open(INPUT) as f:
     for lineno, line in enumerate(f, 1):
         if lineno % 50000 == 0: print(f"  …line {lineno}")
-        try: rec = json.loads(line)
+        try: rec = json_loads(line)
         except: continue
 
         rtype = rec.get('type')
@@ -298,7 +314,11 @@ with open(INPUT) as f:
         # User messages (may contain tool_results)
         if isinstance(content, str):
             clean = strip_system_tags(content)
-            if clean: items.append({'kind':'user', 'ts':ts, 'text':clean})
+            if clean:
+                item = {'kind':'user', 'ts':ts, 'text':clean}
+                if ERROR_TEXT_RE.search(clean):
+                    item['is_error'] = True
+                items.append(item)
         elif isinstance(content, list):
             texts = []
             results = []
@@ -310,7 +330,11 @@ with open(INPUT) as f:
                 elif b.get('type') == 'tool_result':
                     results.append(b)
             if texts:
-                items.append({'kind':'user', 'ts':ts, 'text':'\n'.join(texts)})
+                joined = '\n'.join(texts)
+                item = {'kind':'user', 'ts':ts, 'text':joined}
+                if ERROR_TEXT_RE.search(joined):
+                    item['is_error'] = True
+                items.append(item)
             for tr in results:
                 rt = extract_result_text(tr)
                 if rt.strip() and not is_boilerplate_result(rt):
@@ -375,7 +399,10 @@ for item in items:
                 if not txt: continue
                 if pending_tool:
                     resolved.append(pending_tool); pending_tool = None
-                resolved.append({'kind':'reply', 'ts':ts, 'text':txt})
+                reply = {'kind':'reply', 'ts':ts, 'text':txt}
+                if ERROR_TEXT_RE.search(txt):
+                    reply['is_error'] = True
+                resolved.append(reply)
 
             elif bt == 'thinking':
                 th = block.get('thinking','').strip()
@@ -405,7 +432,8 @@ for item in items:
                     trunc = rt[:3000]
                     if len(rt)>3000: trunc += f'\n…({len(rt)} chars)'
                     err_cls = ' class="err"' if is_err else ''
-                    rhtml = f'<details class="result"><summary>{"Error" if is_err else "Output"} ({len(rt)} chars)</summary><pre{err_cls}>{html.escape(trunc)}</pre></details>'
+                    res_cls = ' err-result' if is_err else ''
+                    rhtml = f'<details class="result{res_cls}"><summary>{"Error" if is_err else "Output"} ({len(rt)} chars)</summary><pre{err_cls}>{html.escape(trunc)}</pre></details>'
                 if pending_tool:
                     pending_tool['result'] = rhtml
                     resolved.append(pending_tool)
@@ -453,6 +481,7 @@ for item in resolved:
             'type': 'turn',
             'user_text': item['text'],
             'user_ts': item['ts'],
+            'user_is_error': item.get('is_error', False),
             'items': [],
             'duration_ms': 0,
             'has_errors': False,
@@ -563,8 +592,9 @@ a {{ color: #0969da; }}
 
 /* Turn header */
 .turn-head {{
-  display: flex; align-items: baseline; gap: 10px;
+  display: flex; align-items: center; gap: 10px;
   cursor: pointer; user-select: none;
+  min-height: 24px;
 }}
 .turn-head:hover .turn-num {{ color: #0969da; }}
 .turn-num {{
@@ -585,6 +615,7 @@ a {{ color: #0969da; }}
 .turn-meta {{
   flex-shrink: 0; font-size: 0.7em; color: #999;
   display: flex; gap: 8px; align-items: center;
+  margin-left: auto;
 }}
 .err-dot {{
   display: inline-block; width: 8px; height: 8px;
@@ -612,8 +643,8 @@ a {{ color: #0969da; }}
 
 /* Turn icons */
 .turn-icon {{
-  width: 16px; height: 16px; flex-shrink: 0;
-  vertical-align: text-bottom; margin-right: 4px;
+  width: 16px; height: 16px;
+  vertical-align: middle; margin-right: 6px;
 }}
 
 /* Shared text styles */
@@ -730,7 +761,11 @@ strong {{ color: #111; }}
 
 /* Results */
 .result {{ margin: 4px 0; }}
+/* Error text (interrupted / API error) */
+.error-text {{ color: #c62828; font-weight: 600; }}
 .result summary {{ cursor: pointer; color: #666; font-size: 0.8em; }}
+.result.err-result summary {{ color: #c62828; font-weight: 600; }}
+.result.err-result {{ border-left: 2px solid #c62828; padding-left: 8px; }}
 pre.err {{ background: #fff5f5; color: #b71c1c; }}
 
 /* Diff blocks */
@@ -1020,7 +1055,10 @@ for t in turns:
   </div>''')
 
     if user_text:
-        out.append(f'  <div class="turn-user-full">{ICON_USER}{user_full_html}</div>')
+        uhtml = user_full_html.replace('<p>', f'<p>{ICON_USER}', 1) if user_full_html.startswith('<p>') else ICON_USER + user_full_html
+        if t.get('user_is_error'):
+            uhtml = f'<div class="error-text">{uhtml}</div>'
+        out.append(f'  <div class="turn-user-full">{uhtml}</div>')
 
     out.append(f'  <div class="turn-body">')
 
@@ -1031,7 +1069,11 @@ for t in turns:
         k = item['kind']
 
         if k == 'reply':
-            out.append(f'    <div class="reply">{ICON_BOT}{md(item["text"])}</div>')
+            rhtml = md(item["text"])
+            rhtml = rhtml.replace('<p>', f'<p>{ICON_BOT}', 1) if rhtml.startswith('<p>') else ICON_BOT + rhtml
+            if item.get('is_error'):
+                rhtml = f'<div class="error-text">{rhtml}</div>'
+            out.append(f'    <div class="reply">{rhtml}</div>')
             idx += 1
 
         elif k == 'thinking':
