@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test claude-transcript against all local Claude conversations."""
+"""Test claude-transcript against all local Claude transcripts."""
 
 import os
 import re
@@ -10,17 +10,17 @@ import json
 
 SCRIPT = os.path.join(os.path.dirname(__file__), 'claude-transcript')
 JSONL_ROOT = os.path.expanduser('~/.claude/projects')
-OUT_DIR = os.path.expanduser('~/public_html/conversations')
+OUT_DIR = os.path.expanduser('~/public_html/transcripts')
 
 os.makedirs(OUT_DIR, exist_ok=True)
 
-# Find all conversation JSONL files (skip subagent files)
+# Find all transcript JSONL files (skip subagent files)
 jsonl_files = sorted(
     f for f in glob.glob(f'{JSONL_ROOT}/*/*.jsonl')
     if os.path.getsize(f) > 1024
 )
 
-print(f"Found {len(jsonl_files)} conversations to test\n")
+print(f"Found {len(jsonl_files)} transcripts to test\n")
 
 passed = 0
 failed = 0
@@ -45,11 +45,11 @@ def render(jsonl, out_html, extra_args=None):
 
 
 # ================================================================
-# PART 1: Structural checks on all conversations (default flags)
+# PART 1: Structural checks on all transcripts (default flags)
 # ================================================================
-print("─── Part 1: Structural checks (all conversations) ───\n")
+print("─── Part 1: Structural checks (all transcripts) ───\n")
 
-# Parallel render all conversations first, then check serially
+# Parallel render all transcripts first, then check serially
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 def render_task(jsonl):
@@ -223,12 +223,12 @@ for jsonl in jsonl_files:
 
 
 # ================================================================
-# PART 2: Flag tests (on a single mid-size conversation)
+# PART 2: Flag tests (on a single mid-size transcript)
 # ================================================================
 print("\n─── Part 2: Flag tests ───\n")
 
-# Pick a conversation with enough content to exercise features
-# Skip the active conversation (being written to, may have unbalanced tags)
+# Pick a transcript with enough content to exercise features
+# Skip the active transcript (being written to, may have unbalanced tags)
 active_session = None
 try:
     import subprocess as _sp
@@ -240,7 +240,7 @@ for f in jsonl_files:
     size = os.path.getsize(f)
     # Skip very small and very large; prefer mid-size
     if 1_000_000 < size < 10_000_000:
-        # Verify this conversation passes baseline (not actively being written)
+        # Verify this transcript passes baseline (not actively being written)
         test_html = f'/tmp/test_flags_probe.html'
         h, rc, _ = render(f, test_html)
         if rc == 0:
@@ -411,14 +411,14 @@ if flag_jsonl:
 # ================================================================
 print("\n─── Part 3: Content coverage ───\n")
 
-# Check that across all conversations we exercise key features
+# Check that across all transcripts we exercise key features
 all_html = ''
 for f in glob.glob(f'{OUT_DIR}/*.html'):
     all_html += open(f).read()
 
 coverage_checks = [
     ('has_diffs', len(re.findall(r'class="diff-block"', all_html)) > 0,
-     'no diff blocks found across all conversations'),
+     'no diff blocks found across all transcripts'),
     ('has_tool_calls', len(re.findall(r'class="tools-section"', all_html)) > 0,
      'no tool sections found'),
     ('has_replies', len(re.findall(r'class="reply"', all_html)) > 0,
@@ -447,7 +447,7 @@ coverage_checks = [
      'no markdown tables rendered'),
     ('has_code_blocks', len(re.findall(r'<pre><code', all_html)) > 0,
      'no fenced code blocks rendered'),
-    # trunc_badge may not exist if no conversation hit max_tokens — skip if absent
+    # trunc_badge may not exist if no transcript hit max_tokens — skip if absent
     # ('has_trunc_badge', len(re.findall(r'class="trunc-badge"', all_html)) > 0,
     #  'no truncation badges found'),
 ]

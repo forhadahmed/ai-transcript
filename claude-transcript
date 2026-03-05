@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render a Claude Code conversation JSONL as HTML — v2 with turn-based layout."""
+"""Render a Claude Code transcript JSONL as HTML — v2 with turn-based layout."""
 
 try:
     import orjson
@@ -26,11 +26,8 @@ except ImportError:
     import markdown
     USE_CMARK = False
 
-parser = argparse.ArgumentParser(description='Render Claude Code JSONL conversations as HTML')
-parser.add_argument('input', nargs='*', default=[
-    "/home/forhad/.claude/projects/-home-forhad/"
-    "1a2ee288-0303-4569-ab87-3e725da91aac.jsonl"
-], help='Input JSONL file(s)')
+parser = argparse.ArgumentParser(description='Render Claude Code JSONL transcripts as HTML')
+parser.add_argument('input', nargs='*', default=[], help='Input JSONL file(s)')
 parser.add_argument('-o', '--output', default=None,
                     help='Output HTML file (only for single input; ignored in batch/multi mode)')
 
@@ -54,10 +51,10 @@ parser.add_argument('--wrap-code', action='store_true', help='Wrap long lines in
 parser.add_argument('--title', default=None, help='Custom title in header')
 
 # Batch
-parser.add_argument('--all', action='store_true', help='Render all conversations')
-parser.add_argument('--recent', type=int, metavar='N', help='Render N most recent conversations')
-parser.add_argument('--outdir', default=os.path.expanduser('~/public_html/conversations'),
-                    help='Output directory for batch mode (default: ~/public_html/conversations)')
+parser.add_argument('--all', action='store_true', help='Render all transcripts')
+parser.add_argument('--recent', type=int, metavar='N', help='Render N most recent transcripts')
+parser.add_argument('--outdir', default='./transcripts',
+                    help='Output directory for batch mode (default: ./transcripts)')
 parser.add_argument('-j', '--jobs', type=int, default=None,
                     help='Parallel jobs for batch mode (default: CPU count)')
 
@@ -103,7 +100,7 @@ if _multi:
         out_html = os.path.join(args.outdir, f'{sid}.html')
         tasks.append((jsonl, out_html, sid))
 
-    print(f"Rendering {len(tasks)} conversations with {jobs} workers …")
+    print(f"Rendering {len(tasks)} transcripts with {jobs} workers …")
     t0 = time.time()
 
     def run_one(task):
@@ -129,8 +126,10 @@ if _multi:
     print(f"\n{ok} ok, {fail} failed — {elapsed:.1f}s ({jobs} workers)")
     sys.exit(1 if fail else 0)
 
+if not args.input:
+    parser.error('No input file specified. Use a JSONL path, --all, or --recent N.')
 INPUT = args.input[0]
-OUTPUT = args.output or os.path.expanduser('~/public_html/conversation.html')
+OUTPUT = args.output or './transcript.html'
 
 if not USE_CMARK:
     MD = markdown.Markdown(extensions=['fenced_code', 'tables', 'nl2br', 'sane_lists'])
@@ -684,7 +683,7 @@ out.append(f'''<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{html.escape(args.title) if args.title else f'Conversation — {turn_count} turns'}</title>
+<title>{html.escape(args.title) if args.title else f'Transcript — {turn_count} turns'}</title>
 <style>
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
 body {{
@@ -1150,7 +1149,7 @@ function jumpBottom() {{ window.scrollTo(0, document.body.scrollHeight); }}
 <div class="page">
 <div class="main">
 <div class="header">
-  <h1>{html.escape(args.title) if args.title else 'Claude Code Conversation'}</h1>
+  <h1>{html.escape(args.title) if args.title else 'Claude Code Transcript'}</h1>
   <div class="meta">
     <span><b>{turn_count}</b> turns</span>
     <span><b>{total_tool_calls}</b> tool calls</span>
