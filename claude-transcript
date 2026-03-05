@@ -702,7 +702,7 @@ a {{ color: #0969da; }}
 .main {{ max-width: {'1600px' if args.wide else '800px' if args.narrow else '1100px'}; margin: 0 auto; padding: 20px 32px; }}
 
 /* Header */
-.header {{ padding: 20px 0 16px; border-bottom: 1px solid #e0e0e0; margin-bottom: 16px; }}
+.header {{ padding: 20px 0 16px; border-bottom: 1px solid #e0e0e0; margin-bottom: 16px; font-family: 'Geist','Inter',-apple-system,'Segoe UI','Helvetica Neue',Arial,sans-serif; }}
 .header h1 {{ font-size: 1.2em; color: #333; }}
 .header .meta {{ font-size: 0.8em; color: #666; margin-top: 6px; }}
 .header .meta span {{ margin-right: 16px; }}
