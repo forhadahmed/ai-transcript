@@ -52,6 +52,14 @@ def md(text):
         # The placeholder might be wrapped in <p> tags by markdown
         result = result.replace(f'<p>{key}</p>', replacement)
         result = result.replace(key, replacement)
+    # Strip stray backtick fences outside of <pre>/<code> blocks
+    def strip_stray_fences(html_str):
+        parts = re.split(r'(<pre[^>]*>.*?</pre>|<code[^>]*>.*?</code>)', html_str, flags=re.DOTALL)
+        for i, part in enumerate(parts):
+            if not part.startswith('<pre') and not part.startswith('<code'):
+                parts[i] = re.sub(r'`{3,}\w*', '', part)
+        return ''.join(parts)
+    result = strip_stray_fences(result)
     return result
 
 def ts_fmt(ts_str):
@@ -155,7 +163,12 @@ def render_diff(old, new):
             lines.append(f'<span class="diff-ctx">{raw}</span>')
     content = '\n'.join(lines)
     if len(content) > 5000:
-        content = content[:5000] + f'\n…(truncated)'
+        # Truncate at a span boundary to avoid unclosed tags
+        cut = content.rfind('</span>', 0, 5000)
+        if cut > 0:
+            content = content[:cut + 7] + f'\n…(truncated)'
+        else:
+            content = content[:5000] + f'</span>\n…(truncated)'
     return f'<pre class="diff-block">{content}</pre>'
 
 def tool_detail(block):
@@ -1024,10 +1037,12 @@ for t in turns:
             while idx < len(turn_items) and turn_items[idx]['kind'] in ('tool_call','tool_output'):
                 group.append(turn_items[idx])
                 idx += 1
-            count = len(group)
+            tc_in_group = sum(1 for g in group if g['kind'] == 'tool_call')
+            count = tc_in_group or len(group)
+            label = 'tool call' if tc_in_group else 'output'
 
             out.append(f'    <div class="tools-section">')
-            out.append(f'      <div class="tools-toggle" onclick="toggleTools(this)">{count} tool call{"s" if count!=1 else ""}</div>')
+            out.append(f'      <div class="tools-toggle" onclick="toggleTools(this)">{count} {label}{"s" if count!=1 else ""}</div>')
             out.append(f'      <div class="tools-list">')
             for g in group:
                 if g['kind'] == 'tool_call':
