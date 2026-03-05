@@ -311,7 +311,6 @@ def tool_detail(block):
         for k,v in inp.items():
             p.append(f'<span class="dim">{html.escape(k)}={html.escape(str(v)[:200])}</span>')
     elif name in ('Edit','Write'):
-        p.append(f'<code>{html.escape(inp.get("file_path",""))}</code>')
         old = inp.get('old_string','')
         new = inp.get('new_string','')
         if (old or new) and not args.no_diffs:
