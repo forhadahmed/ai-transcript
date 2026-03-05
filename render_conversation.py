@@ -245,7 +245,7 @@ def tool_summary(block):
         d = inp.get('path', '')
         return f'{name} {p}{" in "+d if d else ""}', 'search'
     if name in ('Edit', 'Write'):
-        return f'{name} {inp.get("file_path","")}', 'edit'
+        return inp.get('file_path', ''), 'edit'
     if name == 'Agent':
         return f'Agent: {inp.get("description","")}', 'agent'
     if 'mcp__' in name:
