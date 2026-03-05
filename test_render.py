@@ -9,7 +9,7 @@ import glob
 
 SCRIPT = os.path.join(os.path.dirname(__file__), 'render_conversation.py')
 JSONL_ROOT = os.path.expanduser('~/.claude/projects')
-OUT_DIR = os.path.join(os.path.dirname(__file__), 'out')
+OUT_DIR = os.path.expanduser('~/public_html/conversations')
 
 os.makedirs(OUT_DIR, exist_ok=True)
 
