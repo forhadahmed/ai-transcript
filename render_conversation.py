@@ -82,7 +82,7 @@ def mcp_name(raw):
 
 def strip_system_tags(text):
     return re.sub(
-        r'<(system-reminder|local-command-caveat|command-\w+)[^>]*>.*?</\1>',
+        r'<(system-reminder|local-command-caveat|command-\w+|task-notification|user-prompt-submit-hook)[^>]*>.*?</\1>',
         '', text, flags=re.DOTALL
     ).strip()
 
