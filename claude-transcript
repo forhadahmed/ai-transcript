@@ -1157,14 +1157,12 @@ function jumpBottom() {{ window.scrollTo(0, document.body.scrollHeight); }}
 <div class="header">
   <h1>{html.escape(args.title) if args.title else 'Claude Code Transcript'}</h1>
   <div class="meta">
+    <span>{ts_fmt(first_ts)} — {ts_fmt(last_ts)}</span>
     <span><b>{turn_count}</b> turns</span>
     <span><b>{total_tool_calls}</b> tool calls</span>
     <span><b>{compaction_count}</b> compactions</span>
-    {"" if args.no_cost else f'<span style="color:#d63031"><b>${cost_total:.2f}</b> est. cost</span>'}
-  </div>
-  <div class="meta">
-    <span>{ts_fmt(first_ts)} — {ts_fmt(last_ts)}</span>
-    <span>{total_input:,} in / {total_output:,} out / {total_cache_create:,} cache_w / {total_cache_read:,} cache_r tokens</span>
+    <span>{total_input:,} in / {total_output:,} out tokens</span>
+    {"" if args.no_cost else f'<span style="color:#d63031"><b>${cost_total:.2f}</b> est.</span>'}
   </div>
 </div>
 ''')
