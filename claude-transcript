@@ -771,6 +771,7 @@ a {{ color: #0969da; }}
   padding: 10px 16px; border-left: 3px solid #2e7d32;
   margin: 6px 0;
 }}
+.reply, .turn-user-full {{ font-size: 0.9em; }}
 .reply p, .turn-user-full p {{ margin: 5px 0; }}
 .reply h1,.reply h2,.reply h3,.reply h4 {{ margin: 10px 0 4px; }}
 .reply h1 {{ font-size: 1.2em; }}
