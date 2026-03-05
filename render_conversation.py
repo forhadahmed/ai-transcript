@@ -774,7 +774,7 @@ a {{ color: #0969da; }}
 pre {{
   background: #f4f4f4; padding: 8px 10px;
   font-size: 0.88em; margin: 5px 0;
-  max-height: 400px; overflow: auto;{"  white-space: pre-wrap; word-wrap: break-word;" if args.wrap_code else ""}
+  overflow-x: auto;{"  white-space: pre-wrap; word-wrap: break-word;" if args.wrap_code else ""}
 }}
 code {{ background: #f4f4f4; padding: 1px 4px; font-size: 0.9em; }}
 pre code {{ background: none; padding: 0; }}
@@ -892,7 +892,7 @@ pre.err {{ background: #fff5f5; color: #b71c1c; }}
 .diff-block {{
   background: #fafafa; padding: 8px 10px;
   font-size: 0.88em; margin: 5px 0;
-  max-height: 400px; overflow: auto;
+  overflow-x: auto;
   line-height: 1.5;
 }}
 .diff-add, .diff-del, .diff-hunk, .diff-ctx {{ display: block; padding: 0 4px; margin: 0; }}
@@ -1076,6 +1076,7 @@ function highlightText(node, query) {{
   return 0;
 }}
 
+let searchExpanded = new Set();
 function doSearch(query) {{
   const turns = document.querySelectorAll('.turn');
   const counter = document.getElementById('match-count');
@@ -1084,6 +1085,8 @@ function doSearch(query) {{
   clearHighlights();
   if (!query.trim()) {{
     turns.forEach(t => t.classList.remove('search-hidden'));
+    searchExpanded.forEach(t => t.classList.add('collapsed'));
+    searchExpanded.clear();
     counter.textContent = '';
     page.style.visibility = '';
     return;
@@ -1094,6 +1097,10 @@ function doSearch(query) {{
     const text = t.textContent.toLowerCase();
     if (text.includes(q)) {{
       t.classList.remove('search-hidden');
+      if (t.classList.contains('collapsed')) {{
+        t.classList.remove('collapsed');
+        searchExpanded.add(t);
+      }}
       highlightText(t, q);
       matches++;
     }} else {{
