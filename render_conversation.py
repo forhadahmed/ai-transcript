@@ -15,7 +15,14 @@ import html
 import re
 import argparse
 from datetime import datetime
-import markdown
+try:
+    import cmarkgfm
+    from cmarkgfm.cmark import Options as cmarkOpts
+    CMARK_OPTS = cmarkOpts.CMARK_OPT_UNSAFE
+    USE_CMARK = True
+except ImportError:
+    import markdown
+    USE_CMARK = False
 
 parser = argparse.ArgumentParser(description='Render Claude Code JSONL conversations as HTML')
 parser.add_argument('input', nargs='?', default=(
@@ -47,49 +54,48 @@ args = parser.parse_args()
 INPUT = args.input
 OUTPUT = args.output
 
-MD = markdown.Markdown(extensions=['fenced_code', 'tables', 'nl2br', 'sane_lists'])
+if not USE_CMARK:
+    MD = markdown.Markdown(extensions=['fenced_code', 'tables', 'nl2br', 'sane_lists'])
 
-def extract_fenced_blocks(text):
-    """Extract fenced code blocks (possibly indented) into placeholders,
-    so markdown doesn't mangle them. Returns (cleaned_text, dict of placeholder->html)."""
-    placeholders = {}
-    counter = [0]
+    def extract_fenced_blocks(text):
+        """Extract fenced code blocks (possibly indented) into placeholders,
+        so markdown doesn't mangle them. Returns (cleaned_text, dict of placeholder->html)."""
+        placeholders = {}
+        counter = [0]
 
-    def replacer(m):
-        counter[0] += 1
-        key = f'\x00FENCED{counter[0]}\x00'
-        indent = m.group(1) or ''
-        lang = m.group(2) or ''
-        body = m.group(3)
-        # Dedent body by the fence's indentation
-        if indent:
-            body_lines = body.split('\n')
-            body_lines = [l[len(indent):] if l.startswith(indent) else l for l in body_lines]
-            body = '\n'.join(body_lines)
-        lang_attr = f' class="language-{html.escape(lang)}"' if lang else ''
-        placeholders[key] = f'<pre><code{lang_attr}>{html.escape(body)}</code></pre>'
-        return f'\n{key}\n'
+        def replacer(m):
+            counter[0] += 1
+            key = f'\x00FENCED{counter[0]}\x00'
+            indent = m.group(1) or ''
+            lang = m.group(2) or ''
+            body = m.group(3)
+            if indent:
+                body_lines = body.split('\n')
+                body_lines = [l[len(indent):] if l.startswith(indent) else l for l in body_lines]
+                body = '\n'.join(body_lines)
+            lang_attr = f' class="language-{html.escape(lang)}"' if lang else ''
+            placeholders[key] = f'<pre><code{lang_attr}>{html.escape(body)}</code></pre>'
+            return f'\n{key}\n'
 
-    # Match fenced code blocks: optional indent, ```, optional lang, newline, body, closing ```
-    cleaned = re.sub(
-        r'^([ \t]*)`{3,}(\w*)\s*\n(.*?)^\1`{3,}\s*$',
-        replacer, text, flags=re.MULTILINE | re.DOTALL
-    )
-    return cleaned, placeholders
+        cleaned = re.sub(
+            r'^([ \t]*)`{3,}(\w*)\s*\n(.*?)^\1`{3,}\s*$',
+            replacer, text, flags=re.MULTILINE | re.DOTALL
+        )
+        return cleaned, placeholders
 
 NEEDS_MD_RE = re.compile(r'[*_#`\[|>\n]')
 
 def md(text):
-    # Fast path: plain text with no markdown syntax
     if not NEEDS_MD_RE.search(text):
         return f'<p>{html.escape(text)}</p>'
+    if USE_CMARK:
+        return cmarkgfm.github_flavored_markdown_to_html(text, options=CMARK_OPTS)
     MD.reset()
     text, placeholders = extract_fenced_blocks(text)
     result = MD.convert(text)
     for key, replacement in placeholders.items():
         result = result.replace(f'<p>{key}</p>', replacement)
         result = result.replace(key, replacement)
-    # Strip stray backtick fences outside of <pre>/<code> blocks
     if '```' in result:
         parts = re.split(r'(<pre[^>]*>.*?</pre>|<code[^>]*>.*?</code>)', result, flags=re.DOTALL)
         for i, part in enumerate(parts):
