@@ -49,13 +49,35 @@ def render(jsonl, out_html, extra_args=None):
 # ================================================================
 print("─── Part 1: Structural checks (all conversations) ───\n")
 
+# Parallel render all conversations first, then check serially
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
+def render_task(jsonl):
+    session_id = os.path.basename(jsonl).replace('.jsonl', '')
+    out_html = os.path.join(OUT_DIR, f'{session_id}.html')
+    cmd = [sys.executable, SCRIPT, jsonl, out_html]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    return jsonl, result.returncode, result.stderr
+
+jobs = min(os.cpu_count() or 4, len(jsonl_files))
+render_results = {}
+with ProcessPoolExecutor(max_workers=jobs) as pool:
+    futures = {pool.submit(render_task, f): f for f in jsonl_files}
+    for fut in as_completed(futures):
+        jsonl, rc, stderr = fut.result()
+        render_results[jsonl] = (rc, stderr)
+
 for jsonl in jsonl_files:
     session_id = os.path.basename(jsonl).replace('.jsonl', '')
     size_mb = os.path.getsize(jsonl) / 1_000_000
     out_html = os.path.join(OUT_DIR, f'{session_id}.html')
     errors.clear()
 
-    html, rc, stderr = render(jsonl, out_html)
+    rc, stderr = render_results[jsonl]
+    html_content = ''
+    if rc == 0 and os.path.exists(out_html):
+        html_content = open(out_html).read()
+    html = html_content
 
     check('exit_code', rc == 0,
           f'exit code {rc}\n{stderr[-500:]}')

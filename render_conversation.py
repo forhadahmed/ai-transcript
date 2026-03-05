@@ -11,9 +11,11 @@ except ImportError:
 
 import json  # keep for json.dumps in tool_detail
 import sys
+import os
 import html
 import re
 import argparse
+import subprocess
 from datetime import datetime
 try:
     import cmarkgfm
@@ -50,7 +52,79 @@ parser.add_argument('--font-size', type=int, default=15, help='Base font size in
 parser.add_argument('--wrap-code', action='store_true', help='Wrap long lines in code blocks')
 parser.add_argument('--title', default=None, help='Custom title in header')
 
+# Batch
+parser.add_argument('--all', action='store_true', help='Render all conversations')
+parser.add_argument('--recent', type=int, metavar='N', help='Render N most recent conversations')
+parser.add_argument('--outdir', default=os.path.expanduser('~/public_html/conversations'),
+                    help='Output directory for batch mode (default: ~/public_html/conversations)')
+parser.add_argument('-j', '--jobs', type=int, default=None,
+                    help='Parallel jobs for batch mode (default: CPU count)')
+
 args = parser.parse_args()
+
+# ── Batch mode: dispatch parallel subprocesses ──
+if args.all or args.recent:
+    import glob
+    import time
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
+    jsonl_root = os.path.expanduser('~/.claude/projects')
+    all_jsonl = sorted(
+        (f for f in glob.glob(f'{jsonl_root}/*/*.jsonl') if os.path.getsize(f) > 1024),
+        key=os.path.getmtime, reverse=True,
+    )
+    if args.recent:
+        all_jsonl = all_jsonl[:args.recent]
+
+    os.makedirs(args.outdir, exist_ok=True)
+    jobs = args.jobs or min(os.cpu_count() or 4, len(all_jsonl))
+
+    # Build per-file commands, forwarding display flags
+    flag_names = [
+        'no_thinking', 'no_tools', 'no_diffs', 'no_icons', 'no_compactions',
+        'no_gaps', 'full_output', 'show_boilerplate', 'expanded', 'wide',
+        'narrow', 'wrap_code',
+    ]
+    extra_flags = []
+    for fname in flag_names:
+        if getattr(args, fname, False):
+            extra_flags.append(f'--{fname.replace("_", "-")}')
+    if args.font_size != 15:
+        extra_flags += ['--font-size', str(args.font_size)]
+
+    tasks = []
+    for jsonl in all_jsonl:
+        sid = os.path.basename(jsonl).replace('.jsonl', '')
+        out_html = os.path.join(args.outdir, f'{sid}.html')
+        tasks.append((jsonl, out_html, sid))
+
+    print(f"Rendering {len(tasks)} conversations with {jobs} workers …")
+    t0 = time.time()
+
+    def run_one(task):
+        jsonl, out_html, sid = task
+        cmd = [sys.executable, __file__] + extra_flags + [jsonl, out_html]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        size_mb = os.path.getsize(jsonl) / 1_000_000
+        if r.returncode == 0:
+            return f'  ok {sid} ({size_mb:.1f}MB)'
+        else:
+            return f'FAIL {sid} ({size_mb:.1f}MB): {r.stderr[-200:]}'
+
+    import subprocess
+    results = []
+    with ProcessPoolExecutor(max_workers=jobs) as pool:
+        futures = {pool.submit(run_one, t): t for t in tasks}
+        for fut in as_completed(futures):
+            results.append(fut.result())
+            print(fut.result())
+
+    elapsed = time.time() - t0
+    ok = sum(1 for r in results if r.startswith('  ok'))
+    fail = len(results) - ok
+    print(f"\n{ok} ok, {fail} failed — {elapsed:.1f}s ({jobs} workers)")
+    sys.exit(1 if fail else 0)
+
 INPUT = args.input
 OUTPUT = args.output
 
