@@ -750,7 +750,15 @@ a {{ color: #0969da; }}
 }}
 .reply p, .turn-user-full p {{ margin: 5px 0; }}
 .reply h1,.reply h2,.reply h3,.reply h4 {{ margin: 10px 0 4px; }}
+.reply h1 {{ font-size: 1.2em; }}
+.reply h2 {{ font-size: 1.1em; }}
+.reply h3 {{ font-size: 1.0em; }}
+.reply h4 {{ font-size: 0.95em; }}
 .turn-user-full h1,.turn-user-full h2,.turn-user-full h3,.turn-user-full h4 {{ color: #0969da; margin: 10px 0 4px; }}
+.turn-user-full h1 {{ font-size: 1.2em; }}
+.turn-user-full h2 {{ font-size: 1.1em; }}
+.turn-user-full h3 {{ font-size: 1.0em; }}
+.turn-user-full h4 {{ font-size: 0.95em; }}
 
 /* Turn icons */
 .turn-icon {{
