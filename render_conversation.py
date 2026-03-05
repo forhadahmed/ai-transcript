@@ -106,6 +106,9 @@ def tok_color(n):
     if n >= 2000:  return '#f9a825'   # amber
     return '#888'                     # gray — light
 
+ICON_USER = '<svg class="turn-icon" viewBox="0 0 24 24" fill="none" stroke="#0969da" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'
+ICON_BOT = '<svg class="turn-icon" viewBox="0 0 24 24" fill="none" stroke="#2e7d32" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="10" x="3" y="11" rx="2"/><circle cx="9" cy="16" r="1" fill="#2e7d32"/><circle cx="15" cy="16" r="1" fill="#2e7d32"/><path d="M12 7v4"/><circle cx="12" cy="5" r="2"/></svg>'
+
 # ── Tool call helpers ──
 
 def tool_summary(block):
@@ -607,6 +610,12 @@ a {{ color: #0969da; }}
 .reply h1,.reply h2,.reply h3,.reply h4 {{ margin: 10px 0 4px; }}
 .turn-user-full h1,.turn-user-full h2,.turn-user-full h3,.turn-user-full h4 {{ color: #0969da; margin: 10px 0 4px; }}
 
+/* Turn icons */
+.turn-icon {{
+  width: 16px; height: 16px; flex-shrink: 0;
+  vertical-align: text-bottom; margin-right: 4px;
+}}
+
 /* Shared text styles */
 .turn-user-full, .reply, .tbody {{
   overflow-wrap: break-word;
@@ -1011,7 +1020,7 @@ for t in turns:
   </div>''')
 
     if user_text:
-        out.append(f'  <div class="turn-user-full">{user_full_html}</div>')
+        out.append(f'  <div class="turn-user-full">{ICON_USER}{user_full_html}</div>')
 
     out.append(f'  <div class="turn-body">')
 
@@ -1022,7 +1031,7 @@ for t in turns:
         k = item['kind']
 
         if k == 'reply':
-            out.append(f'    <div class="reply">{md(item["text"])}</div>')
+            out.append(f'    <div class="reply">{ICON_BOT}{md(item["text"])}</div>')
             idx += 1
 
         elif k == 'thinking':
