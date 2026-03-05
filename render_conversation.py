@@ -43,6 +43,7 @@ parser.add_argument('--no-compactions', action='store_true', help='Hide compacti
 parser.add_argument('--no-gaps', action='store_true', help='Hide time gap separators')
 parser.add_argument('--full-output', action='store_true', help='Show full tool output (no truncation)')
 parser.add_argument('--show-boilerplate', action='store_true', help='Show "file updated" boilerplate results')
+parser.add_argument('--no-cost', action='store_true', help='Hide cost estimate from header')
 
 # Layout
 parser.add_argument('--expanded', action='store_true', help='All turns expanded by default')
@@ -86,8 +87,8 @@ if _multi:
     # Build per-file commands, forwarding display flags
     flag_names = [
         'no_thinking', 'no_tools', 'no_diffs', 'no_icons', 'no_compactions',
-        'no_gaps', 'full_output', 'show_boilerplate', 'expanded', 'wide',
-        'narrow', 'wrap_code',
+        'no_gaps', 'no_cost', 'full_output', 'show_boilerplate', 'expanded',
+        'wide', 'narrow', 'wrap_code',
     ]
     extra_flags = []
     for fname in flag_names:
@@ -980,8 +981,9 @@ pre.err {{ background: #fff5f5; color: #b71c1c; }}
 }}
 .toolbar input {{ flex: 1; min-width: 0; }}
 
-/* Search hide */
+/* Search hide + highlight */
 .turn.search-hidden {{ display: none; }}
+mark.search-hl {{ background: #fff3a8; color: inherit; padding: 0; border-radius: 0; line-height: inherit; }}
 
 @media (max-width: 800px) {{
   .main {{ padding: 12px; }}
@@ -1043,12 +1045,47 @@ function onSearch(val) {{
   searchTimeout = setTimeout(() => doSearch(val), 150);
 }}
 
+function clearHighlights() {{
+  document.querySelectorAll('mark.search-hl').forEach(m => {{
+    const parent = m.parentNode;
+    parent.replaceChild(document.createTextNode(m.textContent), m);
+    parent.normalize();
+  }});
+}}
+
+function highlightText(node, query) {{
+  if (node.nodeType === 3) {{
+    const idx = node.textContent.toLowerCase().indexOf(query);
+    if (idx === -1) return 0;
+    const mark = document.createElement('mark');
+    mark.className = 'search-hl';
+    const after = node.splitText(idx);
+    after.splitText(query.length);
+    mark.appendChild(after.cloneNode(true));
+    after.parentNode.replaceChild(mark, after);
+    return 1;
+  }}
+  if (node.nodeType === 1 && node.tagName !== 'MARK' && node.tagName !== 'SCRIPT' && node.tagName !== 'STYLE') {{
+    let count = 0;
+    const children = Array.from(node.childNodes);
+    for (const child of children) {{
+      count += highlightText(child, query);
+    }}
+    return count;
+  }}
+  return 0;
+}}
+
 function doSearch(query) {{
   const turns = document.querySelectorAll('.turn');
   const counter = document.getElementById('match-count');
+  const page = document.querySelector('.page');
+  page.style.visibility = 'hidden';
+  clearHighlights();
   if (!query.trim()) {{
     turns.forEach(t => t.classList.remove('search-hidden'));
     counter.textContent = '';
+    page.style.visibility = '';
     return;
   }}
   const q = query.toLowerCase();
@@ -1057,12 +1094,16 @@ function doSearch(query) {{
     const text = t.textContent.toLowerCase();
     if (text.includes(q)) {{
       t.classList.remove('search-hidden');
+      highlightText(t, q);
       matches++;
     }} else {{
       t.classList.add('search-hidden');
     }}
   }});
-  counter.textContent = matches + ' match' + (matches !== 1 ? 'es' : '');
+  counter.textContent = matches + ' turn' + (matches !== 1 ? 's' : '');
+  page.style.visibility = '';
+  const first = document.querySelector('mark.search-hl');
+  if (first) first.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
 }}
 
 function jumpTop() {{ window.scrollTo(0, 0); }}
@@ -1072,7 +1113,7 @@ function jumpBottom() {{ window.scrollTo(0, document.body.scrollHeight); }}
 <body>
 <div class="toolbar-wrap">
 <div class="toolbar">
-  <input id="search-input" type="text" placeholder="Search turns…" oninput="onSearch(this.value)">
+  <input id="search-input" type="text" placeholder="Search" oninput="onSearch(this.value)">
   <span id="match-count" class="match-count"></span>
   <div class="sep"></div>
   <button onclick="jumpTop()">Top</button>
@@ -1089,7 +1130,7 @@ function jumpBottom() {{ window.scrollTo(0, document.body.scrollHeight); }}
     <span><b>{turn_count}</b> turns</span>
     <span><b>{total_tool_calls}</b> tool calls</span>
     <span><b>{compaction_count}</b> compactions</span>
-    <span style="color:#d63031"><b>${cost_total:.2f}</b> est. cost</span>
+    {"" if args.no_cost else f'<span style="color:#d63031"><b>${cost_total:.2f}</b> est. cost</span>'}
   </div>
   <div class="meta">
     <span>{ts_fmt(first_ts)} — {ts_fmt(last_ts)}</span>
