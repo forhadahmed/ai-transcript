@@ -677,10 +677,27 @@ for t in turns:
 
 first_ts = ''
 last_ts = ''
+first_user_msg = ''
 for t in turns:
     ts = t.get('user_ts', t.get('ts',''))
     if ts and not first_ts: first_ts = ts
     if ts: last_ts = ts
+    if not first_user_msg and t.get('user_text','').strip():
+        first_user_msg = t['user_text'].strip().split('\n')[0][:80]
+
+# Auto-title: project name + first user message
+def auto_title():
+    # Extract project from JSONL parent dir name: -home-user-projects-foo -> foo
+    parts = os.path.basename(os.path.dirname(os.path.abspath(INPUT))).split('-')
+    # Skip leading empty string and path components, take last meaningful segment
+    proj = parts[-1] if len(parts) > 1 else ''
+    if proj in ('', 'home', 'forhad'): proj = ''
+    pieces = []
+    if proj: pieces.append(proj)
+    if first_user_msg: pieces.append(first_user_msg)
+    return ': '.join(pieces) if pieces else f'Transcript — {turn_count} turns'
+
+_auto_title = auto_title()
 
 out = []
 out.append(f'''<!DOCTYPE html>
@@ -688,7 +705,7 @@ out.append(f'''<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 {f'<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family={args.code_font.replace(" ", "+")}:wght@300;400;700&display=swap">' if args.code_font in ("JetBrains Mono", "Fira Code", "Source Code Pro", "IBM Plex Mono", "Roboto Mono", "Ubuntu Mono") else ""}
-<title>{html.escape(args.title) if args.title else f'Transcript — {turn_count} turns'}</title>
+<title>{html.escape(args.title or _auto_title)}</title>
 <style>
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
 body {{
@@ -1156,7 +1173,7 @@ function jumpBottom() {{ window.scrollTo(0, document.body.scrollHeight); }}
 <div class="page">
 <div class="main">
 <div class="header">
-  <h1>{html.escape(args.title) if args.title else 'Claude Code Transcript'}</h1>
+  <h1>{html.escape(args.title or _auto_title)}</h1>
   <div class="meta">
     <span>{ts_fmt(first_ts)} — {ts_fmt(last_ts)}</span>
     <span><b>{turn_count}</b> turns</span>
