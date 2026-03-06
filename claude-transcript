@@ -1267,8 +1267,12 @@ for t in turns:
     <span class="turn-meta">{err_html}{diff_stat_html}{trunc_html}{tc_html}{tok_html}<span>{time_html}</span></span>
   </div>''')
 
+    user_icon_used = False
+    bot_icon_used = False
+
     if user_text:
         icon = ICON_USER if not args.no_icons else ''
+        user_icon_used = bool(icon)
         uhtml = user_full_html.replace('<p>', f'<p>{icon}', 1) if icon and user_full_html.startswith('<p>') else icon + user_full_html
         if t.get('user_is_error'):
             uhtml = f'<div class="error-text">{uhtml}</div>'
@@ -1284,7 +1288,8 @@ for t in turns:
 
         if k == 'reply':
             rhtml = md(item["text"])
-            icon = ICON_BOT if not args.no_icons else ''
+            icon = ICON_BOT if not args.no_icons and not bot_icon_used else ''
+            if icon: bot_icon_used = True
             rhtml = rhtml.replace('<p>', f'<p>{icon}', 1) if icon and rhtml.startswith('<p>') else icon + rhtml
             if item.get('is_error'):
                 rhtml = f'<div class="error-text">{rhtml}</div>'
