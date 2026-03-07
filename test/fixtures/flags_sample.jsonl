@@ -1,0 +1,5 @@
+{"type":"user","timestamp":"2026-03-01T10:00:00Z","message":{"content":"First message"}}
+{"type":"assistant","timestamp":"2026-03-01T10:00:05Z","message":{"id":"a1","usage":{"input_tokens":1200,"output_tokens":2400},"stop_reason":"end_turn","content":[{"type":"thinking","thinking":"I should think about this carefully."},{"type":"text","text":"Reply one with `code` and **bold**."},{"type":"tool_use","id":"tool-1","name":"Edit","input":{"file_path":"/tmp/test.py","old_string":"print('old')","new_string":"print('new')"}},{"type":"tool_result","content":"File updated successfully.","is_error":false}]}}
+{"type":"system","subtype":"compact_boundary","timestamp":"2026-03-01T10:30:00Z","compactMetadata":{"preTokens":"50000"}}
+{"type":"user","timestamp":"2026-03-01T12:00:00Z","message":{"content":"Second message after 2h gap"}}
+{"type":"assistant","timestamp":"2026-03-01T12:00:05Z","message":{"id":"a2","usage":{"input_tokens":500,"output_tokens":1000},"stop_reason":"end_turn","content":[{"type":"text","text":"Reply two."}]}}

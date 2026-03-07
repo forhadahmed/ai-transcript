@@ -91,6 +91,83 @@ class ClaudeTranscriptCliTests(TranscriptCliTestCase):
         combined = result.stdout + result.stderr
         self.assertIn("invalid JSON", combined)
 
+    def test_expanded_flag_removes_collapsed_class(self):
+        _, html = self.run_single("flags_sample.jsonl", "--expanded")
+        # Turns should not have collapsed class (but CSS rules still mention it)
+        self.assertNotIn('class="turn collapsed', html)
+        self.assertIn('class="turn"', html)
+
+    def test_wide_flag_sets_max_width(self):
+        _, html = self.run_single("share_sample.jsonl", "--wide")
+        self.assertIn("max-width: 1600px", html)
+
+    def test_narrow_flag_sets_max_width(self):
+        _, html = self.run_single("share_sample.jsonl", "--narrow")
+        self.assertIn("max-width: 800px", html)
+
+    def test_wrap_code_flag(self):
+        _, html = self.run_single("share_sample.jsonl", "--wrap-code")
+        self.assertIn("white-space: pre-wrap", html)
+
+    def test_no_diffs_hides_diff_blocks(self):
+        _, html = self.run_single("flags_sample.jsonl", "--no-diffs")
+        self.assertNotIn('class="diff-block"', html)
+
+    def test_no_icons_hides_icons(self):
+        _, html = self.run_single("flags_sample.jsonl", "--no-icons")
+        self.assertNotIn('class="turn-icon"', html)
+
+    def test_no_thinking_hides_thinking(self):
+        _, html = self.run_single("flags_sample.jsonl", "--no-thinking")
+        self.assertNotIn('class="thinking-block"', html)
+
+    def test_no_compactions_hides_compaction(self):
+        _, html = self.run_single("flags_sample.jsonl", "--no-compactions")
+        self.assertNotIn('class="compaction"', html)
+
+    def test_compaction_shown_by_default(self):
+        _, html = self.run_single("flags_sample.jsonl")
+        self.assertIn("Context compacted", html)
+
+    def test_time_gap_shown_by_default(self):
+        _, html = self.run_single("flags_sample.jsonl")
+        self.assertIn('class="time-gap"', html)
+        self.assertIn("2h gap", html)
+
+    def test_no_gaps_hides_time_gap(self):
+        _, html = self.run_single("flags_sample.jsonl", "--no-gaps")
+        self.assertNotIn('class="time-gap"', html)
+
+    def test_allow_unsafe_html_renders_raw(self):
+        _, html = self.run_single("share_sample.jsonl", "--allow-unsafe-html")
+        self.assertIn("<b>bold</b>", html)
+
+    def test_external_fonts_includes_google_fonts(self):
+        _, html = self.run_single("share_sample.jsonl", "--external-fonts")
+        self.assertIn("fonts.googleapis.com", html)
+
+    def test_font_size_flag(self):
+        _, html = self.run_single("share_sample.jsonl", "--font-size", "18")
+        self.assertIn("font-size: 18px", html)
+
+    def test_redact_pattern_custom(self):
+        _, html = self.run_single("share_sample.jsonl", "--redact-pattern", r"alice")
+        self.assertNotIn("alice", html)
+        self.assertIn("[REDACTED]", html)
+
+    def test_full_output_no_truncation(self):
+        _, html = self.run_single("flags_sample.jsonl", "--full-output")
+        self.assertNotIn("...(", html)
+
+    def test_default_has_thinking_block(self):
+        _, html = self.run_single("flags_sample.jsonl")
+        self.assertIn('class="thinking-block"', html)
+        self.assertIn("think about this carefully", html)
+
+    def test_default_has_diff_block(self):
+        _, html = self.run_single("flags_sample.jsonl")
+        self.assertIn('class="diff-block"', html)
+
 
 class CodexTranscriptCliTests(TranscriptCliTestCase):
     SCRIPT = CODEX_SCRIPT
