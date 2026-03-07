@@ -1,0 +1,2 @@
+{"type":"user","timestamp":"2026-03-02T12:00:00Z","message":{"content":"Second transcript for batch mode."}}
+{"type":"assistant","timestamp":"2026-03-02T12:00:02Z","message":{"id":"b1","usage":{"input_tokens":100,"output_tokens":200},"stop_reason":"end_turn","content":[{"type":"text","text":"Batch title check."}]}}
