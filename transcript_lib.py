@@ -62,14 +62,50 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 # Fonts we know are available on Google Fonts CDN (used with --external-fonts)
-KNOWN_CODE_FONTS = {
+# Fonts available from Google Fonts CDN (lazy-loaded on selection)
+CDN_FONTS = {
     "JetBrains Mono",
     "Fira Code",
     "Source Code Pro",
     "IBM Plex Mono",
     "Roboto Mono",
     "Ubuntu Mono",
+    "Inconsolata",
+    "Space Mono",
+    "DM Mono",
+    "Anonymous Pro",
+    "Cousine",
+    "PT Mono",
+    "Noto Sans Mono",
+    "Red Hat Mono",
+    "Martian Mono",
+    "Inter",
+    "Roboto",
+    "Open Sans",
+    "Lato",
+    "Nunito",
+    "DM Sans",
+    "IBM Plex Sans",
+    "Source Sans 3",
+    "Merriweather",
+    "Lora",
+    "Source Serif 4",
+    "IBM Plex Serif",
+    "Literata",
 }
+
+# System fonts (no CDN needed, available locally on macOS/Windows/Linux)
+SYSTEM_FONTS = [
+    "Menlo",
+    "Monaco",
+    "SF Mono",
+    "Consolas",
+    "Cascadia Code",
+    "Courier New",
+]
+
+# Combined for the font picker and --code-font validation
+KNOWN_CODE_FONTS = CDN_FONTS | set(SYSTEM_FONTS)
 
 # CLI flags forwarded as --flag-name when spawning batch worker subprocesses.
 # Each entry is the argparse dest name (underscored); serialize_forwarded_flags()
@@ -309,7 +345,7 @@ def build_base_parser(description: str, default_outdir: str) -> argparse.Argumen
     parser.add_argument("--wrap-code", action="store_true", help="Wrap long code lines")
     parser.add_argument(
         "--code-font",
-        default="JetBrains Mono",
+        default="Source Code Pro",
         help="Code font family preference",
     )
     parser.add_argument("--title", default=None, help="Custom title in header")
@@ -405,7 +441,7 @@ def serialize_forwarded_flags(args: argparse.Namespace) -> list[str]:
             extra_flags.append(f"--{name.replace('_', '-')}")
     if args.font_size != 15:
         extra_flags.extend(["--font-size", str(args.font_size)])
-    if args.code_font != "JetBrains Mono":
+    if args.code_font != "Source Code Pro":
         extra_flags.extend(["--code-font", args.code_font])
     if args.title:
         extra_flags.extend(["--title", args.title])
@@ -863,11 +899,10 @@ def build_html_scaffold_prefix(
 ) -> list[str]:
     safe_font = sanitize_css_value(args.code_font)
     fonts_link = ""
-    if args.external_fonts and args.code_font in KNOWN_CODE_FONTS:
-        fonts_link = (
-            '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family='
-            f'{args.code_font.replace(" ", "+")}:wght@300;400;700&display=swap">'
-        )
+    fonts_link = (
+        '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?'
+        f'family={args.code_font.replace(" ", "+")}:wght@200;300;400;700&display=swap">'
+    )
 
     favicon = favicon_link(engine_label)
 
@@ -928,11 +963,11 @@ def build_html_scaffold_prefix(
         ".turn-icon { width: 16px; height: 16px; vertical-align: middle; margin-right: 6px; }",
         ".turn-user-full, .reply, .tbody { overflow-wrap: break-word; }",
         (
-            "pre { background: #f4f4f4; padding: 8px 10px; font-size: 0.88em; margin: 5px 0; overflow-x: auto;"
+            "pre { background: #f4f4f4; padding: 8px 10px; font-size: 0.88em; margin: 5px 0; overflow-x: auto; font-family: inherit;"
             + (" white-space: pre-wrap; word-wrap: break-word;" if args.wrap_code else "")
             + " }"
         ),
-        "code { background: #f4f4f4; padding: 1px 4px; font-size: 0.9em; }",
+        "code { background: #f4f4f4; padding: 1px 4px; font-size: 0.9em; font-family: inherit; }",
         "pre code { background: none; padding: 0; }",
         "ul, ol { padding-left: 20px; margin: 5px 0; }",
         "li { margin: 2px 0; }",
@@ -1004,10 +1039,10 @@ def build_html_scaffold_prefix(
         ".time-gap::before, .time-gap::after { content: ''; flex: 1; border-top: 1px dashed #ccc; }",
         ".toolbar { display: flex; align-items: center; gap: 6px; max-width: 1100px; margin: 0 auto; padding: 6px 32px; }",
         ".toolbar, .toolbar button, .toolbar input { font-family: 'Geist','Inter',-apple-system,'Segoe UI','Helvetica Neue',Arial,sans-serif; }",
-        ".toolbar button { font-size: 0.78em; padding: 4px 10px; border: 1px solid #d0d0d0; background: #fafafa; color: #333; cursor: pointer; border-radius: 3px; white-space: nowrap; }",
+        ".toolbar button { font-size: 0.78em; padding: 4px 10px; border: 1px solid #d0d0d0; background: #fafafa; color: #333; cursor: pointer; border-radius: 3px; white-space: nowrap; height: 28px; box-sizing: border-box; }",
         ".toolbar button:hover { background: #eee; }",
         ".toolbar button.active { background: #0969da; color: #fff; border-color: #0969da; }",
-        ".toolbar input { font-size: 0.78em; padding: 4px 8px; border: 1px solid #d0d0d0; border-radius: 3px; outline: none; }",
+        ".toolbar input { font-size: 0.78em; padding: 4px 8px; border: 1px solid #d0d0d0; border-radius: 3px; outline: none; height: 28px; box-sizing: border-box; }",
         ".toolbar input:focus { border-color: #0969da; }",
         ".search-wrap { position: relative; flex: 1; min-width: 0; }",
         ".search-wrap input { width: 100%; box-sizing: border-box; padding-right: 24px; }",
@@ -1015,11 +1050,33 @@ def build_html_scaffold_prefix(
         ".search-clear:hover { color: #333; }",
         ".search-wrap input:not(:placeholder-shown) ~ .search-clear { display: block; }",
         ".toolbar .sep { width: 1px; height: 20px; background: #ddd; margin: 0 4px; }",
+        ".font-picker { position: relative; }",
+        ".font-picker-btn { font-size: 0.82em; padding: 2px 8px; border: 1px solid #d0d0d0; background: #fafafa; color: #666; cursor: pointer; line-height: 1; font-family: serif; font-weight: 600; border-radius: 3px; height: 28px; box-sizing: border-box; }",
+        ".font-picker-btn:hover { color: #333; }",
+        ".font-picker-menu { display: none; position: absolute; right: 0; top: 100%; background: #fff; border: 1px solid #d0d0d0; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.12); z-index: 300; min-width: 170px; padding: 4px 0; max-height: 400px; overflow-y: auto; }",
+        ".font-picker-label { font-size: 0.68em; color: #999; padding: 6px 12px 2px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }",
+        ".font-picker-menu.open { display: block; }",
+        ".font-picker-item { font-size: 0.78em; padding: 6px 12px; cursor: pointer; color: #333; white-space: nowrap; }",
+        ".font-picker-item:hover { background: #f0f0f0; }",
+        ".font-picker-item.active { color: #0969da; font-weight: 600; }",
         ".toolbar .match-count { font-size: 0.72em; color: #999; }",
         ".toolbar-wrap { position: sticky; top: 0; z-index: 100; background: #fff; border-bottom: 1px solid #e0e0e0; }",
         ".turn.search-hidden { display: none; }",
         "mark.search-hl { background: #fff3a8; color: inherit; padding: 0; border-radius: 0; line-height: inherit; }",
         "@media (max-width: 800px) { .main { padding: 12px; } .toolbar input { width: 120px; } }",
+        # Skeleton loading placeholder
+        ".skeleton { max-width: 1100px; margin: 0 auto; padding: 20px 32px; }",
+        ".skeleton .sk-header { height: 20px; width: 40%; background: #e8e8e8; border-radius: 4px; margin-bottom: 10px; }",
+        ".skeleton .sk-meta { height: 12px; width: 60%; background: #f0f0f0; border-radius: 4px; margin-bottom: 24px; }",
+        ".skeleton .sk-turn { border-bottom: 1px solid #f0f0f0; padding: 16px 0; }",
+        ".skeleton .sk-bar { background: #f0f0f0; border-radius: 4px; margin-bottom: 8px; animation: sk-pulse 1.2s ease-in-out infinite; }",
+        ".skeleton .sk-user { height: 14px; width: 70%; border-left: 3px solid #d0e0f0; padding-left: 10px; }",
+        ".skeleton .sk-reply { height: 12px; border-left: 3px solid #d0e8d0; padding-left: 10px; }",
+        ".skeleton .sk-r1 { width: 90%; }",
+        ".skeleton .sk-r2 { width: 75%; }",
+        ".skeleton .sk-r3 { width: 60%; }",
+        "@keyframes sk-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }",
+        "body.loaded .skeleton { display: none; }",
         # Thin scrollbars (sidebar and main content)
         "::-webkit-scrollbar { width: 6px; }",
         "::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }",
@@ -1112,10 +1169,89 @@ def build_html_scaffold_prefix(
         " }",
         "function jumpTop() { window.scrollTo(0, 0); }",
         "function jumpBottom() { window.scrollTo(0, document.body.scrollHeight); }",
+        "var loadedFonts = {};",
+        "var systemFonts = {'Menlo':1,'Monaco':1,'SF Mono':1,'Consolas':1,'Cascadia Code':1,'Courier New':1};",
+        "function loadFont(f) {"
+        " if (loadedFonts[f] || systemFonts[f]) return;"
+        " loadedFonts[f] = true;"
+        " var link = document.createElement('link');"
+        " link.rel = 'stylesheet';"
+        " link.href = 'https://fonts.googleapis.com/css2?family=' + f.replace(/ /g,'+') + ':wght@200;300;400;700&display=swap';"
+        " document.head.appendChild(link);"
+        "}",
+        "function changeFont(f,el) {"
+        " loadFont(f);"
+        " document.body.style.fontFamily = \"'\" + f + \"','SF Mono','Cascadia Code','Fira Code','Consolas',monospace\";"
+        " localStorage.setItem('transcriptFont', f);"
+        " document.querySelectorAll('.font-picker-item').forEach(function(i){i.classList.remove('active')});"
+        " if(el)el.classList.add('active');"
+        " el.closest('.font-picker-menu').classList.remove('open');"
+        "}",
+        "window.addEventListener('DOMContentLoaded', function() {"
+        " var saved = localStorage.getItem('transcriptFont');"
+        " if (saved) {"
+        "   loadFont(saved);"
+        "   document.body.style.fontFamily = \"'\" + saved + \"','SF Mono','Cascadia Code','Fira Code','Consolas',monospace\";"
+        "   document.querySelectorAll('.font-picker-item').forEach(function(i){"
+        "     if(i.dataset.font===saved)i.classList.add('active');"
+        "   });"
+        " } else {"
+        "   document.querySelectorAll('.font-picker-item').forEach(function(i){"
+        "     if(i.dataset.font==='Source Code Pro')i.classList.add('active');"
+        "   });"
+        " }"
+        "});",
         "</script>",
         "</head>",
         "<body>",
-        '<div class="toolbar-wrap"><div class="toolbar"><div class="search-wrap"><input id="search-input" type="text" placeholder="Search" oninput="onSearch(this.value)"><span id="search-clear" class="search-clear" onclick="document.getElementById(\'search-input\').value=\'\';onSearch(\'\')">&times;</span></div><span id="match-count" class="match-count"></span><div class="sep"></div><button onclick="jumpTop()">Top</button><button onclick="jumpBottom()">Bottom</button><div class="sep"></div><button onclick="toggleExpandAll(this)">Expand All</button></div></div>',
+        '<div class="toolbar-wrap"><div class="toolbar">'
+        '<div class="search-wrap"><input id="search-input" type="text" placeholder="Search" oninput="onSearch(this.value)">'
+        '<span id="search-clear" class="search-clear" onclick="document.getElementById(\'search-input\').value=\'\';onSearch(\'\')">&times;</span></div>'
+        '<span id="match-count" class="match-count"></span><div class="sep"></div>'
+        '<button onclick="jumpTop()">Top</button><button onclick="jumpBottom()">Bottom</button>'
+        '<div class="sep"></div><button onclick="toggleExpandAll(this)">Expand All</button>'
+        '<div class="sep"></div>'
+        '<div class="font-picker">'
+        '<button class="font-picker-btn" onclick="this.nextElementSibling.classList.toggle(\'open\')" title="Change font">Aa</button>'
+        '<div class="font-picker-menu">'
+        '<div class="font-picker-label">System</div>'
+        + "".join(
+            f'<div class="font-picker-item" onclick="changeFont(\'{f}\',this)" data-font="{f}">{f}</div>'
+            for f in SYSTEM_FONTS
+        )
+        + '<div class="font-picker-label">Monospace</div>'
+        + "".join(
+            f'<div class="font-picker-item" onclick="changeFont(\'{f}\',this)" data-font="{f}">{f}</div>'
+            for f in sorted(f for f in CDN_FONTS if f not in (
+                "Inter", "Roboto", "Open Sans", "Lato", "Nunito", "DM Sans",
+                "IBM Plex Sans", "Source Sans 3", "Merriweather", "Lora",
+                "Source Serif 4", "IBM Plex Serif", "Literata"))
+        )
+        + '<div class="font-picker-label">Sans-serif</div>'
+        + "".join(
+            f'<div class="font-picker-item" onclick="changeFont(\'{f}\',this)" data-font="{f}">{f}</div>'
+            for f in sorted(["Inter", "Roboto", "Open Sans", "Lato", "Nunito", "DM Sans", "IBM Plex Sans", "Source Sans 3"])
+        )
+        + '<div class="font-picker-label">Serif</div>'
+        + "".join(
+            f'<div class="font-picker-item" onclick="changeFont(\'{f}\',this)" data-font="{f}">{f}</div>'
+            for f in sorted(["Merriweather", "Lora", "Source Serif 4", "IBM Plex Serif", "Literata"])
+        )
+        + '</div></div>'
+        '</div></div>',
+        '<div class="skeleton">'
+        '<div class="sk-header sk-bar"></div><div class="sk-meta sk-bar"></div>'
+        + ''.join(
+            '<div class="sk-turn">'
+            '<div class="sk-bar sk-user"></div>'
+            '<div class="sk-bar sk-reply sk-r1"></div>'
+            '<div class="sk-bar sk-reply sk-r2"></div>'
+            '<div class="sk-bar sk-reply sk-r3"></div>'
+            '</div>'
+            for _ in range(6)
+        )
+        + '</div>'
+        '<script>window.addEventListener("load",function(){document.body.classList.add("loaded")});</script>',
         '<div class="page"><div class="main">',
         '<div class="header">',
         f"<h1>{engine_logo_html(engine_label)}{format_title_html(title)}</h1>",
@@ -1253,10 +1389,6 @@ def render_html(
                 bot_icon_used = bot_icon_used or bool(icon)
                 reply_html = render_markdown(item["text"], args)
                 phase = item.get("phase", "")
-                if phase == "commentary":
-                    reply_html = f'<div class="dim">Commentary</div>{reply_html}'
-                elif phase == "final_answer":
-                    reply_html = f'<div class="dim">Final Answer</div>{reply_html}'
                 reply_html = iconize(reply_html, icon)
                 reply_html = wrap_error(reply_html, item.get("is_error", False))
                 out.append(f'<div class="reply">{reply_html}</div>')
@@ -1375,22 +1507,24 @@ def extract_html_meta(path: str) -> dict[str, str]:
     """Read the start of an HTML file to extract title and header metadata."""
     try:
         with open(path, encoding="utf-8") as f:
-            head = f.read(32768)
+            head = f.read(131072)
     except Exception:
         return {"title": os.path.basename(path)}
     title_m = re.search(r"<title>(.*?)</title>", head)
     title = title_m.group(1) if title_m else os.path.basename(path)
     # Extract date (first <span> in .meta)
     date = ""
+    date_raw = ""  # ISO format for sorting
     date_m = re.search(r'<div class="meta"><span>([^<]+)', head)
     if date_m:
         raw = date_m.group(1).strip()
         # "2026-03-07 04:44:05 - 2026-03-08 03:24:43" → "Mar 7"
-        ts_m = re.match(r"(\d{4})-(\d{2})-(\d{2})", raw)
+        ts_m = re.match(r"(\d{4})-(\d{2})-(\d{2})\s*(\d{2}:\d{2}:\d{2})?", raw)
         if ts_m:
             months = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
             date = f"{months[int(ts_m.group(2))]} {int(ts_m.group(3))}"
+            date_raw = raw[:19]  # "2026-03-07 04:44:05"
     # Extract turns count
     turns = ""
     turns_m = re.search(r"<b>(\d+)</b>\s*turns", head)
@@ -1398,16 +1532,18 @@ def extract_html_meta(path: str) -> dict[str, str]:
         turns = turns_m.group(1)
     # Extract output token count (e.g. "186,429 out tokens")
     tokens = ""
+    tokens_raw = 0
     tok_m = re.search(r"([\d,]+)\s*out tokens", head)
     if tok_m:
-        raw_tok = int(tok_m.group(1).replace(",", ""))
-        if raw_tok >= 1_000_000:
-            tokens = f"{raw_tok / 1_000_000:.1f}M"
-        elif raw_tok >= 1_000:
-            tokens = f"{raw_tok // 1_000}K"
+        tokens_raw = int(tok_m.group(1).replace(",", ""))
+        if tokens_raw >= 1_000_000:
+            tokens = f"{tokens_raw / 1_000_000:.1f}M"
+        elif tokens_raw >= 1_000:
+            tokens = f"{tokens_raw // 1_000}K"
         else:
-            tokens = str(raw_tok)
-    return {"title": title, "date": date, "turns": turns, "tokens": tokens}
+            tokens = str(tokens_raw)
+    return {"title": title, "date": date, "date_raw": date_raw, "turns": turns,
+            "tokens": tokens, "tokens_raw": tokens_raw}
 
 
 def format_toc_entry(title: str) -> str:
@@ -1426,9 +1562,9 @@ def inject_toc_sidebar(output_paths: list[str], *, engine_label: str = "") -> No
     Injects a hamburger button into the toolbar and a sidebar div after <body>.
     Each file highlights its own entry as 'current'.
     """
-    # Collect titles, metadata, and filenames
-    entries: list[tuple[str, str, str]] = []  # (filename, title_html, meta_html)
-    for path in sorted(output_paths):
+    # Collect titles, metadata, and filenames — sorted by date descending (most recent first)
+    raw_entries: list[tuple[str, str, str, str]] = []  # (date_raw, filename, title_html, meta_html)
+    for path in output_paths:
         meta = extract_html_meta(path)
         title_html = format_toc_entry(meta["title"])
         info_parts = []
@@ -1437,9 +1573,23 @@ def inject_toc_sidebar(output_paths: list[str], *, engine_label: str = "") -> No
         if meta.get("turns"):
             info_parts.append(f'{meta["turns"]} turns')
         if meta.get("tokens"):
-            info_parts.append(f'{meta["tokens"]} tokens')
+            raw = meta.get("tokens_raw", 0)
+            if raw >= 1_000_000:
+                color = "#d63031"   # red — very large
+            elif raw >= 200_000:
+                color = "#e67e22"   # orange — large
+            elif raw >= 50_000:
+                color = "#f9a825"   # amber — medium
+            else:
+                color = ""          # default gray
+            tok_str = meta["tokens"] + " tokens"
+            if color:
+                tok_str = f'<span style="color:{color}">{tok_str}</span>'
+            info_parts.append(tok_str)
         meta_html = f'<span class="toc-meta">{" · ".join(info_parts)}</span>' if info_parts else ""
-        entries.append((os.path.basename(path), title_html, meta_html))
+        raw_entries.append((meta.get("date_raw", ""), os.path.basename(path), title_html, meta_html))
+    raw_entries.sort(key=lambda e: e[0], reverse=True)
+    entries: list[tuple[str, str, str]] = [(fn, th, mh) for _, fn, th, mh in raw_entries]
 
     hamburger = '<button class="toc-hamburger" onclick="toggleToc()" title="All transcripts">&#9776;</button>'
     toc_fn_js = (
@@ -1512,8 +1662,14 @@ def inject_toc_sidebar(output_paths: list[str], *, engine_label: str = "") -> No
 
 
 def generate_index(outdir: str, output_paths: list[str], *, engine_label: str = "") -> None:
-    """Generate an index.html that redirects to the first transcript (with sidebar open)."""
-    first = os.path.basename(sorted(output_paths)[0])
+    """Generate an index.html that redirects to the most recent transcript (with sidebar open)."""
+    # Sort by date descending to find the most recent transcript
+    dated = []
+    for p in output_paths:
+        meta = extract_html_meta(p)
+        dated.append((meta.get("date_raw", ""), p))
+    dated.sort(key=lambda e: e[0], reverse=True)
+    first = os.path.basename(dated[0][1])
     index_html = (
         f'<!DOCTYPE html><html><head><meta charset="utf-8">'
         f'<meta http-equiv="refresh" content="0;url={html.escape(first)}?toc=1">'
