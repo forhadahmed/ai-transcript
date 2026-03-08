@@ -863,6 +863,42 @@ LOGO_CODEX = (
 )
 
 
+LOGO_GIT = (
+    '<svg class="git-logo" viewBox="0 0 24 24" width="10" height="10">'
+    '<path d="M23.546 10.93L13.067.452a1.55 1.55 0 0 0-2.188 0L8.708 2.627l2.76 2.76a1.838'
+    ' 1.838 0 0 1 2.327 2.341l2.66 2.66a1.838 1.838 0 1 1-1.103 1.03l-2.48-2.48v6.53a1.838'
+    ' 1.838 0 1 1-1.512-.06V8.783a1.838 1.838 0 0 1-.998-2.41L7.629 3.64.452 10.816a1.55'
+    ' 1.55 0 0 0 0 2.188l10.48 10.48a1.55 1.55 0 0 0 2.186 0l10.43-10.43a1.55 1.55 0 0 0'
+    ' 0-2.123z" fill="#ccc"/></svg>'
+)
+
+
+def git_project_name(cwd: str) -> tuple[str, bool]:
+    """Derive project name from cwd. If inside a git repo, return repo-relative path.
+
+    Returns (project_name, is_git).
+    """
+    if not cwd:
+        return "", False
+    cwd = cwd.rstrip(os.sep)
+    # Walk up to find .git directory
+    check = cwd
+    while True:
+        if os.path.isdir(os.path.join(check, ".git")):
+            # Found git root — project is repo_name or repo_name/subdir
+            repo_name = os.path.basename(check)
+            rel = os.path.relpath(cwd, check)
+            if rel == ".":
+                return repo_name, True
+            return f"{repo_name}/{rel}", True
+        parent = os.path.dirname(check)
+        if parent == check:
+            break
+        check = parent
+    # Not a git repo — just use leaf directory
+    return os.path.basename(cwd), False
+
+
 def favicon_link(engine_label: str) -> str:
     """Return a <link rel=icon> tag for the given engine, or empty string."""
     if not engine_label:
@@ -896,6 +932,7 @@ def build_html_scaffold_prefix(
     args: argparse.Namespace,
     max_width: str,
     engine_label: str = "",
+    is_git: bool = False,
 ) -> list[str]:
     safe_font = sanitize_css_value(args.code_font)
     fonts_link = ""
@@ -1095,13 +1132,14 @@ def build_html_scaffold_prefix(
         # Title span matches toolbar button sizing so toc-header height matches toolbar-wrap (38px).
         ".toc-header span { font-size: 0.78em; line-height: normal; font-weight: 600; color: #333; padding: 4px 0; border-top: 1px solid transparent; border-bottom: 1px solid transparent; display: flex; align-items: center; gap: 6px; }",
         ".toc-header .engine-logo { width: 14px; height: 14px; }",
+        ".toc-list .git-logo { vertical-align: middle; margin-right: 2px; flex-shrink: 0; }",
         ".toc-close { font-size: 1.1em; line-height: 1; padding: 0; border: none; background: none; color: #999; cursor: pointer; margin-left: auto; }",
         ".toc-close:hover { color: #333; }",
         # Scrollable list fills remaining space
         ".toc-list { list-style: none; padding: 0; margin: 0; overflow-y: auto; flex: 1; }",
         ".toc-list li { border-bottom: 1px solid #e0e0e0; margin: 0; }",
         ".toc-list a { display: block; padding: 8px 12px; text-decoration: none; color: #333; font-size: 0.78em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.5; }",
-        ".toc-meta { display: block; font-size: 0.9em; color: #999; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }",
+        ".toc-meta { display: block; font-size: 0.78em; color: #999; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }",
         ".toc-list a:hover { background: #f6f8fa; }",
         ".toc-list a.current { background: #e8f0fe; color: #1967d2; }",
         ".toc-list .toc-project { font-weight: 700; }",
@@ -1255,7 +1293,7 @@ def build_html_scaffold_prefix(
         + '</div>'
         '<script>window.addEventListener("load",function(){document.body.classList.add("loaded")});</script>',
         '<div class="page"><div class="main">',
-        '<div class="header">',
+        '<div class="header"' + (' data-git="1"' if is_git else '') + '>',
         f"<h1>{engine_logo_html(engine_label)}{format_title_html(title)}</h1>",
         f'<div class="meta">{header_meta_html}</div>',
         "</div>",
@@ -1300,7 +1338,8 @@ def render_html(
     title = args.title or auto_title_fn(input_path, turns, data["turn_count"], data)
     max_width = "1600px" if args.wide else "800px" if args.narrow else "1100px"
     header_meta_html = build_header_meta_html(data, args, first_ts, last_ts)
-    out = build_html_scaffold_prefix(title, header_meta_html, args, max_width, engine_label)
+    is_git = data.get("is_git", False)
+    out = build_html_scaffold_prefix(title, header_meta_html, args, max_width, engine_label, is_git)
 
     bot_icon = ICON_BOT_CODEX if "codex" in engine_label.lower() else ICON_BOT_CLAUDE
     gap_threshold_ms = 30 * 60 * 1000
@@ -1544,8 +1583,9 @@ def extract_html_meta(path: str) -> dict[str, str]:
             tokens = f"{tokens_raw // 1_000}K"
         else:
             tokens = str(tokens_raw)
+    is_git = 'data-git="1"' in head
     return {"title": title, "date": date, "date_raw": date_raw, "turns": turns,
-            "tokens": tokens, "tokens_raw": tokens_raw}
+            "tokens": tokens, "tokens_raw": tokens_raw, "is_git": is_git}
 
 
 def format_toc_entry(title: str) -> str:
@@ -1568,7 +1608,8 @@ def inject_toc_sidebar(output_paths: list[str], *, engine_label: str = "") -> No
     raw_entries: list[tuple[str, str, str, str]] = []  # (date_raw, filename, title_html, meta_html)
     for path in output_paths:
         meta = extract_html_meta(path)
-        title_html = format_toc_entry(meta["title"])
+        git_icon = LOGO_GIT + " " if meta.get("is_git") else ""
+        title_html = git_icon + format_toc_entry(meta["title"])
         info_parts = []
         if meta.get("date"):
             info_parts.append(meta["date"])

@@ -15,6 +15,7 @@ from transcript_lib import (
     ERROR_TEXT_RE,
     Redactor,
     extract_result_text,
+    git_project_name,
     is_boilerplate_result,
     json_loads,
     read_jsonl_records,
@@ -426,13 +427,12 @@ def parse_transcript(path: str, args: Any) -> dict[str, Any]:
 
 
 def auto_title(path: str, turns: list[dict[str, Any]], turn_count: int, data: dict[str, Any]) -> str:
-    project = ""
     cwd = ""
     session_meta = data.get("session_meta")
     if isinstance(session_meta, dict):
         cwd = session_meta.get("cwd", "")
-    if cwd:
-        project = os.path.basename(cwd.rstrip(os.sep))
+    project, is_git = git_project_name(cwd)
+    data["is_git"] = is_git
     if not project:
         project = os.path.basename(os.path.dirname(os.path.abspath(path)))
     if project in ("", "home", os.path.basename(os.path.expanduser("~"))):

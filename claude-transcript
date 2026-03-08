@@ -22,6 +22,7 @@ from transcript_lib import (
     compute_opus_cost,
     estimate_message_size,
     extract_result_text,
+    git_project_name,
     is_boilerplate_result,
     mcp_name,
     read_jsonl_records,
@@ -423,6 +424,13 @@ def parse_transcript(path: str, args: Any) -> dict[str, Any]:
     records, malformed = read_jsonl_records(path, args.strict)
     redactor = Redactor(args)
 
+    # Extract cwd from first record
+    cwd = ""
+    for record in records:
+        if record.get("cwd"):
+            cwd = record["cwd"]
+            break
+
     items, assistant_entries, agent_progress = _collect_items(records, redactor, args)
     stats = _compute_token_stats(assistant_entries)
     resolved = _resolve_assistant_items(items, redactor, args, agent_progress)
@@ -442,6 +450,7 @@ def parse_transcript(path: str, args: Any) -> dict[str, Any]:
         **stats,
         "malformed_lines": malformed,
         "redactor": redactor,
+        "cwd": cwd,
     }
 
 
@@ -451,8 +460,13 @@ def parse_transcript(path: str, args: Any) -> dict[str, Any]:
 
 
 def auto_title(path: str, turns: list[dict[str, Any]], turn_count: int, data: dict[str, Any]) -> str:
-    parts = os.path.basename(os.path.dirname(os.path.abspath(path))).split("-")
-    project = parts[-1] if len(parts) > 1 else ""
+    cwd = data.get("cwd", "")
+    project, is_git = git_project_name(cwd)
+    data["is_git"] = is_git
+    if not project:
+        # Fallback: derive from JSONL directory name
+        parts = os.path.basename(os.path.dirname(os.path.abspath(path))).split("-")
+        project = parts[-1] if len(parts) > 1 else ""
     if project in ("", "home", os.path.basename(os.path.expanduser("~"))):
         project = ""
     first_user = ""
