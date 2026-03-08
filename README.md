@@ -1,5 +1,3 @@
-# ai-transcript
-
 Render Claude Code and Codex AI session transcripts as standalone, browsable HTML.
 
 ## Quick Start
