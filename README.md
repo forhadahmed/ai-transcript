@@ -19,8 +19,12 @@ Current behavior:
 
 - safe-by-default for sharing
 - raw transcript HTML is escaped unless you pass `--allow-unsafe-html`
-- output is offline-safe by default and does not fetch Google Fonts
+- fonts loaded from Google Fonts CDN (Source Code Pro default)
 - share presets can redact common sensitive values before rendering
+- batch mode generates sidebar TOC with search, sorted by date
+- skeleton loading placeholder for large transcripts
+- font picker (Aa button) with system, monospace, sans-serif, and serif options
+- git-aware project names with git logo in sidebar
 
 ## Install
 
@@ -65,8 +69,8 @@ Current behavior:
 
 - same HTML scaffold and share-safe defaults as `claude-transcript`
 - parses local Codex session JSONL under `~/.codex/sessions`
-- renders commentary, final answers, thinking summaries, and tool activity
-- output is offline-safe by default and does not fetch Google Fonts
+- renders thinking summaries and tool activity
+- fonts loaded from Google Fonts CDN
 
 ## `codex-transcript` Usage
 
@@ -160,7 +164,7 @@ The script prints a preflight summary showing malformed-line skips and redaction
 | `--font-size N` | Base font size in px |
 | `--wrap-code` | Wrap long code lines |
 | `--title TEXT` | Set a custom title |
-| `--external-fonts` | Allow Google Fonts in output |
+| `--code-font NAME` | Code font (default: Source Code Pro) |
 | `--allow-unsafe-html` | Render raw transcript HTML without escaping |
 
 ### Batch
