@@ -1,4 +1,14 @@
-"""Shared infrastructure for AI transcript renderers."""
+"""Shared infrastructure for AI transcript renderers.
+
+Each engine (Claude Code, Codex) has its own script that defines:
+  - parse_transcript(): reads JSONL and produces a normalized turn list
+  - tool_summary(): returns (label, icon_class) for a tool call
+  - tool_detail(): returns HTML body for a tool call's expanded view
+  - auto_title(): generates a title from the transcript data
+
+This module provides everything else: CLI parsing, HTML rendering, search,
+batch processing, redaction, markdown, and diff highlighting.
+"""
 
 from __future__ import annotations
 
@@ -51,6 +61,7 @@ except ImportError:
 # Constants
 # ---------------------------------------------------------------------------
 
+# Fonts we know are available on Google Fonts CDN (used with --external-fonts)
 KNOWN_CODE_FONTS = {
     "JetBrains Mono",
     "Fira Code",
@@ -60,6 +71,9 @@ KNOWN_CODE_FONTS = {
     "Ubuntu Mono",
 }
 
+# CLI flags forwarded as --flag-name when spawning batch worker subprocesses.
+# Each entry is the argparse dest name (underscored); serialize_forwarded_flags()
+# converts to --kebab-case for the subprocess command line.
 BOOL_FORWARD_FLAGS = [
     "no_thinking",
     "no_tools",
@@ -162,6 +176,12 @@ ICON_BOT_CODEX = (
 
 
 class Redactor:
+    """Strips sensitive data (home paths, emails, IPs, API keys, env vars) from text.
+
+    Enabled by --share-safe/--share-public presets or individual --redact-* flags.
+    Tracks counts per redaction type for the summary printed after rendering.
+    """
+
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.counts: Counter[str] = Counter()
@@ -274,6 +294,7 @@ def build_base_parser(description: str, default_outdir: str) -> argparse.Argumen
     parser.add_argument("--no-gaps", action="store_true", help="Hide time gap separators")
     parser.add_argument("--no-cost", action="store_true", help="Hide cost estimate from header")
     parser.add_argument("--no-timestamps", action="store_true", help="Hide timestamps from header and turns")
+    parser.add_argument("--no-toc", action="store_true", help="Omit sidebar table of contents in batch mode")
     parser.add_argument("--full-output", action="store_true", help="Show full tool output")
     parser.add_argument(
         "--show-boilerplate",
@@ -356,6 +377,12 @@ def build_base_parser(description: str, default_outdir: str) -> argparse.Argumen
 
 
 def apply_share_preset(args: argparse.Namespace) -> None:
+    """Expand --share-safe/--share-public into individual redaction flags.
+
+    --share-safe:   redact PII but keep full content (for teammates)
+    --share-public: also strip thinking, timestamps, tool results (for blog posts)
+    --share-full:   no redaction at all (keep everything, for personal archives)
+    """
     if args.share_safe or args.share_public:
         args.redact_home = True
         args.redact_env = True
@@ -436,10 +463,12 @@ def tok_color(value: int) -> str:
 
 
 def strip_system_tags(text: str) -> str:
+    """Remove <system-reminder>, <task-notification>, etc. injected by the CLI."""
     return SYSTEM_TAG_RE.sub("", text).strip()
 
 
 def is_boilerplate_result(text: str, args: argparse.Namespace) -> bool:
+    """True for tool results that add noise (e.g. 'File updated successfully.')."""
     if args.show_boilerplate:
         return False
     return bool(BOILERPLATE_RE.match(text.strip()))
@@ -452,6 +481,7 @@ def safe_markdown_source(text: str, args: argparse.Namespace) -> str:
 
 
 def sanitize_css_value(raw: str) -> str:
+    """Strip characters that could break out of a CSS property value."""
     return re.sub(r"['\";{}\\]", "", raw)
 
 
@@ -491,6 +521,11 @@ def compute_opus_cost(
 
 
 def extract_fenced_blocks(text: str) -> tuple[str, dict[str, str]]:
+    """Pull fenced code blocks out before markdown conversion, replace after.
+
+    This prevents the markdown parser from mangling code block contents
+    (indentation, special chars). Returns (text_with_placeholders, placeholder_map).
+    """
     placeholders: dict[str, str] = {}
     counter = 0
 
@@ -562,6 +597,7 @@ def mcp_name(raw: str) -> str:
 
 
 def render_diff(old: str, new: str) -> str:
+    """Generate red/green highlighted HTML from old_string→new_string (Claude Edit tool)."""
     old_lines = (old or "").splitlines(keepends=True)
     new_lines = (new or "").splitlines(keepends=True)
 
@@ -667,6 +703,11 @@ def wrap_error(rendered: str, is_error: bool) -> str:
 
 
 def estimate_message_size(content: Any) -> int:
+    """Rough byte estimate of a Claude message's content blocks.
+
+    Used to detect compaction boundaries — when the context window was
+    compressed, message sizes drop sharply.
+    """
     if isinstance(content, str):
         return len(content)
     if not isinstance(content, list):
@@ -704,6 +745,11 @@ def render_tool_row(
     tool_summary_fn: Callable,
     tool_detail_fn: Callable,
 ) -> str:
+    """Render a single tool call as a collapsible <details> row.
+
+    Edit tools auto-expand (open attribute) so diffs are visible without
+    extra clicks. The .auto-open-edit class lets search collapse/restore them.
+    """
     summary, icon = tool_summary_fn(tool_call["block"])
     body = tool_detail_fn(tool_call["block"], args)
     result_html = None
@@ -730,8 +776,11 @@ def render_tool_row(
             )
         inner += "</div>"
     count_suffix = f' <span class="dim">({len(inner_tools)} inner)</span>' if inner_tools else ""
+    is_edit = icon == "edit" and not args.no_diffs
+    open_attr = " open" if is_edit else ""
+    extra_class = " auto-open-edit" if is_edit else ""
     return (
-        '<details class="trow">'
+        f'<details class="trow{extra_class}"{open_attr}>'
         f'<summary><span class="badge {icon}">{icon}</span>'
         f'<span class="tsum">{html.escape(summary)}{count_suffix}</span></summary>'
         f'<div class="tbody">{inner}</div>'
@@ -758,9 +807,8 @@ def build_header_meta_html(data: dict[str, Any], args: argparse.Namespace, first
 
 
 LOGO_CLAUDE = (
-    '<svg class="engine-logo" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">'
-    '<path d="M16.312 11.592l-5.676-9.432c-.672-1.08-1.74-1.644-2.82-1.644-1.656 0-3.312 1.26-2.544 3.516L7.14 8.688l-2.7 4.488c-.288.468-.444 1.008-.444 1.56 0 1.656 1.344 3 3 3h2.016l2.16 3.588c.648 1.08 1.728 1.668 2.832 1.668 1.656 0 3.312-1.272 2.544-3.516L14.7 15.3h3.3c1.656 0 3-1.344 3-3 0-.552-.156-1.104-.456-1.584l-4.232-7.128'
-    ' fill="#D97757"/></svg>'
+    '<img class="engine-logo" src="data:image/png;base64,'
+    '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">'
 )
 LOGO_CODEX = (
     '<svg class="engine-logo" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">'
@@ -777,6 +825,18 @@ LOGO_CODEX = (
     ' 4.135l-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.795.795 0 0 0'
     '-.393.681zm1.097-2.365l2.602-1.5 2.596 1.5v2.999l-2.596 1.5-2.602-1.5z" fill="#10a37f"/></svg>'
 )
+
+
+def favicon_link(engine_label: str) -> str:
+    """Return a <link rel=icon> tag for the given engine, or empty string."""
+    if not engine_label:
+        return ""
+    if "claude" in engine_label.lower():
+        b64 = LOGO_CLAUDE.split("base64,", 1)[1].rstrip("'>")
+        return f'<link rel="icon" type="image/png" href="data:image/png;base64,{b64}">'
+    fav_svg = (LOGO_CODEX.replace(' class="engine-logo"', '')
+               .replace('"', "'").replace('#', '%23'))
+    return f'<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,{fav_svg}">'
 
 
 def _engine_logo_html(engine_label: str) -> str:
@@ -809,11 +869,14 @@ def build_html_scaffold_prefix(
             f'{args.code_font.replace(" ", "+")}:wght@300;400;700&display=swap">'
         )
 
+    favicon = favicon_link(engine_label)
+
     return [
         "<!DOCTYPE html>",
         '<html lang="en"><head>',
         '<meta charset="UTF-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
+        favicon,
         fonts_link,
         f"<title>{html.escape(title)}</title>",
         "<style>",
@@ -952,6 +1015,28 @@ def build_html_scaffold_prefix(
         ".turn.search-hidden { display: none; }",
         "mark.search-hl { background: #fff3a8; color: inherit; padding: 0; border-radius: 0; line-height: inherit; }",
         "@media (max-width: 800px) { .main { padding: 12px; } .toolbar input { width: 120px; } }",
+        # Sidebar TOC (injected by batch post-processing; CSS is always present, no-op if no sidebar)
+        # Hamburger inherits .toolbar button styling via the cascade — no extra rules needed.
+        # Sidebar panel: fixed left drawer, same font stack and border as toolbar.
+        ".toc-sidebar { position: fixed; top: 0; left: -300px; width: 300px; height: 100vh; background: #fff; border-right: 1px solid #e0e0e0; z-index: 200; display: flex; flex-direction: column; font-family: 'Geist','Inter',-apple-system,'Segoe UI','Helvetica Neue',Arial,sans-serif; }",
+        ".toc-sidebar.open { left: 0; }",
+        ".toc-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.12); z-index: 199; }",
+        ".toc-sidebar.open ~ .toc-overlay { display: block; }",
+        # Header matches toolbar: same padding, border, height
+        ".toc-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0; height: 38px; box-sizing: border-box; }",
+        # Title span matches toolbar button sizing so toc-header height matches toolbar-wrap (38px).
+        ".toc-header span { font-size: 0.78em; line-height: normal; font-weight: 600; color: #333; padding: 4px 0; border-top: 1px solid transparent; border-bottom: 1px solid transparent; display: flex; align-items: center; gap: 6px; }",
+        ".toc-header .engine-logo { width: 14px; height: 14px; }",
+        ".toc-close { font-size: 1.1em; line-height: 1; padding: 0; border: none; background: none; color: #999; cursor: pointer; margin-left: auto; }",
+        ".toc-close:hover { color: #333; }",
+        # Scrollable list fills remaining space
+        ".toc-list { list-style: none; padding: 0; margin: 0; overflow-y: auto; flex: 1; }",
+        ".toc-list li { border-bottom: 1px solid #e0e0e0; margin: 0; }",
+        ".toc-list a { display: block; padding: 8px 12px; text-decoration: none; color: #333; font-size: 0.78em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
+        ".toc-list a:hover { background: #f6f8fa; }",
+        ".toc-list a.current { background: #e8f0fe; color: #1967d2; }",
+        ".toc-list .toc-project { font-weight: 700; }",
+        ".toc-list .toc-msg { font-weight: 300; }",
         "</style>",
         "<script>",
         "function toggleTurn(el) { const turn = el.closest('.turn'); const wasCollapsed = turn.classList.contains('collapsed'); turn.classList.toggle('collapsed'); if (wasCollapsed) { history.replaceState(null, '', '#' + turn.id); } }",
@@ -964,8 +1049,57 @@ def build_html_scaffold_prefix(
         "function onSearch(val) { clearTimeout(searchTimeout); searchTimeout = setTimeout(() => doSearch(val), 150); }",
         "function clearHighlights() { document.querySelectorAll('mark.search-hl').forEach(m => { const parent = m.parentNode; parent.replaceChild(document.createTextNode(m.textContent), m); parent.normalize(); }); }",
         "function highlightText(node, query) { if (node.nodeType === 3) { const idx = node.textContent.toLowerCase().indexOf(query); if (idx === -1) return 0; const mark = document.createElement('mark'); mark.className = 'search-hl'; const after = node.splitText(idx); after.splitText(query.length); mark.appendChild(after.cloneNode(true)); after.parentNode.replaceChild(mark, after); return 1; } if (node.nodeType === 1 && node.tagName !== 'MARK' && node.tagName !== 'SCRIPT' && node.tagName !== 'STYLE') { let count = 0; const children = Array.from(node.childNodes); for (const child of children) { count += highlightText(child, query); } return count; } return 0; }",
-        "let searchExpanded = new Set();",
-        "function doSearch(query) { const turns = document.querySelectorAll('.turn'); const counter = document.getElementById('match-count'); const page = document.querySelector('.page'); page.style.visibility = 'hidden'; clearHighlights(); if (!query.trim()) { turns.forEach(t => t.classList.remove('search-hidden')); searchExpanded.forEach(t => t.classList.add('collapsed')); searchExpanded.clear(); counter.textContent = ''; page.style.visibility = ''; return; } const q = query.toLowerCase(); let matches = 0; turns.forEach(t => { const text = t.textContent.toLowerCase(); if (text.includes(q)) { t.classList.remove('search-hidden'); if (t.classList.contains('collapsed')) { t.classList.remove('collapsed'); searchExpanded.add(t); } highlightText(t, q); matches++; } else { t.classList.add('search-hidden'); } }); counter.textContent = matches + ' turn' + (matches !== 1 ? 's' : ''); page.style.visibility = ''; const first = document.querySelector('mark.search-hl'); if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' }); }",
+        "/* Search state: track what we expanded so we can restore on clear */",
+        "let searchExpanded = new Set();  /* turns we un-collapsed */",
+        "let searchOpenedSections = new Set();  /* .tools-section we opened */",
+        "let searchOpenedDetails = new Set();  /* <details> (trow/thinking) we opened */",
+        "function doSearch(query) {"
+        " const turns = document.querySelectorAll('.turn');"
+        " const counter = document.getElementById('match-count');"
+        " const page = document.querySelector('.page');"
+        " page.style.visibility = 'hidden';"
+        " clearHighlights();"
+        # Collapse everything search previously opened
+        " searchOpenedSections.forEach(s => s.classList.remove('open')); searchOpenedSections.clear();"
+        " searchOpenedDetails.forEach(d => d.removeAttribute('open')); searchOpenedDetails.clear();"
+        # Empty query: restore original state (re-collapse turns, re-open auto-expanded edits)
+        " if (!query.trim()) {"
+        "   turns.forEach(t => t.classList.remove('search-hidden'));"
+        "   searchExpanded.forEach(t => t.classList.add('collapsed'));"
+        "   searchExpanded.clear();"
+        "   document.querySelectorAll('.tools-section.auto-open-edit').forEach(s => s.classList.add('open'));"
+        "   document.querySelectorAll('details.auto-open-edit').forEach(d => d.setAttribute('open',''));"
+        "   counter.textContent = '';"
+        "   page.style.visibility = '';"
+        "   return;"
+        " }"
+        " const q = query.toLowerCase();"
+        " let matches = 0;"
+        " turns.forEach(t => {"
+        "   const text = t.textContent.toLowerCase();"
+        "   if (text.includes(q)) {"
+        "     t.classList.remove('search-hidden');"
+        "     if (t.classList.contains('collapsed')) { t.classList.remove('collapsed'); searchExpanded.add(t); }"
+        # Only expand tool sections/details that contain the match
+        "     t.querySelectorAll('.tools-section').forEach(s => {"
+        "       s.classList.remove('open');"
+        "       const list = s.querySelector('.tools-list');"
+        "       if (list && list.textContent.toLowerCase().includes(q)) {"
+        "         s.classList.add('open'); searchOpenedSections.add(s);"
+        "         list.querySelectorAll('details.trow, details.thinking-block').forEach(d => {"
+        "           d.removeAttribute('open');"
+        "           if (d.textContent.toLowerCase().includes(q)) { d.setAttribute('open',''); searchOpenedDetails.add(d); }"
+        "         });"
+        "       }"
+        "     });"
+        "     highlightText(t, q); matches++;"
+        "   } else { t.classList.add('search-hidden'); }"
+        " });"
+        " counter.textContent = matches + ' turn' + (matches !== 1 ? 's' : '');"
+        " page.style.visibility = '';"
+        " const first = document.querySelector('mark.search-hl');"
+        " if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });"
+        " }",
         "function jumpTop() { window.scrollTo(0, 0); }",
         "function jumpBottom() { window.scrollTo(0, document.body.scrollHeight); }",
         "</script>",
@@ -1000,6 +1134,11 @@ def render_html(
     tool_detail_fn: Callable,
     engine_label: str = "",
 ) -> str:
+    """Build the complete HTML output from parsed turn data.
+
+    Callbacks (auto_title_fn, tool_summary_fn, tool_detail_fn) are provided
+    by the engine-specific script so this function stays format-agnostic.
+    """
     turns = data["turns"]
     first_ts = ""
     last_ts = ""
@@ -1138,7 +1277,13 @@ def render_html(
                 tool_calls = sum(1 for entry in group if entry["kind"] == "tool_call")
                 count = tool_calls or len(group)
                 label = "tool call" if tool_calls else "output"
-                out.append('<div class="tools-section">')
+                has_edits = not args.no_diffs and any(
+                    entry["kind"] == "tool_call"
+                    and tool_summary_fn(entry["block"])[1] == "edit"
+                    for entry in group
+                )
+                section_class = "tools-section open auto-open-edit" if has_edits else "tools-section"
+                out.append(f'<div class="{section_class}">')
                 out.append(
                     f'<div class="tools-toggle" onclick="toggleTools(this)">{count} {label}{"s" if count != 1 else ""}</div>'
                 )
@@ -1201,6 +1346,12 @@ def _batch_inputs(args: argparse.Namespace, jsonl_root: str, min_size: int, recu
 
 
 def _run_batch_task(task: tuple[str, str, str, list[str], str]) -> str:
+    """Worker for batch mode: spawns a subprocess of the calling script.
+
+    We use subprocesses (not threads) because each render can be 100MB+ of
+    JSONL parsing — subprocess isolation avoids GIL and memory fragmentation.
+    The subprocess runs the same script with a single input file + forwarded flags.
+    """
     jsonl_path, output_path, session_id, flags, script_path = task
     cmd = [sys.executable, script_path, "-o", output_path] + flags + [jsonl_path]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
@@ -1210,6 +1361,123 @@ def _run_batch_task(task: tuple[str, str, str, list[str], str]) -> str:
     return f"FAIL {session_id} ({size_mb:.1f}MB): {result.stderr[-200:] or result.stdout[-200:]}"
 
 
+def _extract_html_title(path: str) -> str:
+    """Read just enough of an HTML file to extract its <title> content."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            head = f.read(4096)
+        match = re.search(r"<title>(.*?)</title>", head)
+        return match.group(1) if match else os.path.basename(path)
+    except Exception:
+        return os.path.basename(path)
+
+
+def _format_toc_entry(title: str) -> str:
+    """Format title as <span class=toc-project>bold</span>: <span class=toc-msg>rest</span>."""
+    title = html.unescape(title)
+    if ": " in title:
+        project, rest = title.split(": ", 1)
+        return (f'<span class="toc-project">{html.escape(project)}</span>: '
+                f'<span class="toc-msg">{html.escape(rest)}</span>')
+    return html.escape(title)
+
+
+def inject_toc_sidebar(output_paths: list[str], *, engine_label: str = "") -> None:
+    """Post-process batch HTML files to inject a sidebar TOC linking all conversations.
+
+    Injects a hamburger button into the toolbar and a sidebar div after <body>.
+    Each file highlights its own entry as 'current'.
+    """
+    # Collect titles and filenames
+    entries: list[tuple[str, str, str]] = []  # (filename, title, formatted_html)
+    for path in sorted(output_paths):
+        title = _extract_html_title(path)
+        formatted = _format_toc_entry(title)
+        entries.append((os.path.basename(path), title, formatted))
+
+    hamburger = '<button class="toc-hamburger" onclick="toggleToc()" title="All transcripts">&#9776;</button>'
+    toc_fn_js = (
+        '<script>'
+        'function toggleToc(){document.querySelector(".toc-sidebar").classList.toggle("open");}'
+        'function closeToc(){document.querySelector(".toc-sidebar").classList.remove("open");}'
+        '</script>'
+    )
+    # Injected in <head>: sets sidebar to left:0 before body is ever painted.
+    toc_head_js = (
+        '<script>'
+        'if(new URLSearchParams(location.search).has("toc")){'
+        'document.write(\'<style>.toc-sidebar{left:0}</style>\');}'
+        '</script>'
+    )
+    # Runs after sidebar div: adds .open class and restores scroll position.
+    toc_auto_open_js = (
+        '<script>'
+        'if(new URLSearchParams(location.search).has("toc")){'
+        'document.querySelector(".toc-sidebar").classList.add("open");'
+        # Restore sidebar scroll position from previous page
+        'var l=document.querySelector(".toc-list");'
+        'var s=sessionStorage.getItem("tocScroll");'
+        'if(s)l.scrollTop=+s;'
+        # Save scroll position before navigating away
+        'l.querySelectorAll("a").forEach(function(a){'
+        'a.addEventListener("click",function(){'
+        'sessionStorage.setItem("tocScroll",l.scrollTop);});});}'
+        '</script>'
+    )
+
+    for path in output_paths:
+        current_file = os.path.basename(path)
+        # Build sidebar HTML
+        li_items = []
+        for filename, _title, formatted in entries:
+            cls = ' class="current"' if filename == current_file else ""
+            li_items.append(f'<li><a href="{html.escape(filename)}?toc=1"{cls}>{formatted}</a></li>')
+        sidebar_html = (
+            f'{toc_fn_js}'
+            '<div class="toc-sidebar">'
+            '<div class="toc-header">'
+            f'<span>{_engine_logo_html(engine_label)}{len(entries)} Transcripts</span>'
+            '<button class="toc-close" onclick="closeToc()">&times;</button>'
+            '</div>'
+            f'<ul class="toc-list">{"".join(li_items)}</ul>'
+            '</div>'
+            '<div class="toc-overlay" onclick="closeToc()"></div>'
+            f'{toc_auto_open_js}'
+        )
+
+        try:
+            with open(path, encoding="utf-8") as f:
+                content = f.read()
+            # Inject <head> script so sidebar CSS is left:0 before first paint
+            content = content.replace("</head>", f"{toc_head_js}</head>", 1)
+            # Inject hamburger as first element in toolbar
+            content = content.replace(
+                '<div class="toolbar">',
+                f'<div class="toolbar">{hamburger}',
+                1,
+            )
+            # Inject sidebar + overlay after <body>
+            content = content.replace("<body>", f"<body>{sidebar_html}", 1)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+        except Exception as exc:
+            print(f"  TOC inject failed for {path}: {exc}")
+
+
+def generate_index(outdir: str, output_paths: list[str], *, engine_label: str = "") -> None:
+    """Generate an index.html that redirects to the first transcript (with sidebar open)."""
+    first = os.path.basename(sorted(output_paths)[0])
+    index_html = (
+        f'<!DOCTYPE html><html><head><meta charset="utf-8">'
+        f'<meta http-equiv="refresh" content="0;url={html.escape(first)}?toc=1">'
+        f'</head><body></body></html>'
+    )
+    index_path = os.path.join(outdir, "index.html")
+    with open(index_path, "w", encoding="utf-8") as f:
+        f.write(index_html)
+    print(f"  Index: {index_path}")
+
+
 def run_batch(
     args: argparse.Namespace,
     *,
@@ -1217,6 +1485,7 @@ def run_batch(
     jsonl_root: str,
     min_size: int,
     recursive: bool,
+    engine_label: str = "",
 ) -> int:
     inputs = _batch_inputs(args, jsonl_root, min_size, recursive)
     os.makedirs(args.outdir, exist_ok=True)
@@ -1246,6 +1515,17 @@ def run_batch(
     fail_count = len(results) - ok_count
     elapsed = time.time() - started
     print(f"\n{ok_count} ok, {fail_count} failed - {elapsed:.1f}s ({jobs} workers)")
+
+    # Inject sidebar TOC linking all rendered conversations
+    ok_paths = [t[1] for t in tasks if os.path.exists(t[1])]
+    if not args.no_toc and len(ok_paths) > 1:
+        inject_toc_sidebar(ok_paths, engine_label=engine_label)
+        print(f"  TOC sidebar injected into {len(ok_paths)} files")
+
+    # Generate index.html listing all rendered transcripts
+    if ok_paths:
+        generate_index(args.outdir, ok_paths, engine_label=engine_label)
+
     return 1 if fail_count else 0
 
 
@@ -1319,6 +1599,7 @@ def transcript_main(
             jsonl_root=jsonl_root,
             min_size=min_file_size,
             recursive=recursive_glob,
+            engine_label=engine_label,
         )
     input_path = args.input[0]
     output_path = args.output or "./transcript.html"
