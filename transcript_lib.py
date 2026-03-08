@@ -916,6 +916,7 @@ def build_html_scaffold_prefix(
         f"<title>{html.escape(title)}</title>",
         "<style>",
         "* { box-sizing: border-box; margin: 0; padding: 0; }",
+        "html { overflow-y: scroll; }",
         (
             "body { font-family: '"
             + safe_font
@@ -1037,12 +1038,12 @@ def build_html_scaffold_prefix(
         ".compaction span { font-size: 0.72em; color: #d63031; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }",
         ".time-gap { margin: 0; padding: 8px 0; text-align: center; font-size: 0.72em; color: #999; display: flex; align-items: center; gap: 12px; }",
         ".time-gap::before, .time-gap::after { content: ''; flex: 1; border-top: 1px dashed #ccc; }",
-        ".toolbar { display: flex; align-items: center; gap: 6px; max-width: 1100px; margin: 0 auto; padding: 6px 32px; }",
+        ".toolbar { display: flex; align-items: center; gap: 6px; max-width: 1100px; margin: 0 auto; padding: 4px 32px; height: 100%; box-sizing: border-box; }",
         ".toolbar, .toolbar button, .toolbar input { font-family: 'Geist','Inter',-apple-system,'Segoe UI','Helvetica Neue',Arial,sans-serif; }",
-        ".toolbar button { font-size: 0.78em; padding: 4px 10px; border: 1px solid #d0d0d0; background: #fafafa; color: #333; cursor: pointer; border-radius: 3px; white-space: nowrap; height: 28px; box-sizing: border-box; }",
+        ".toolbar button { font-size: 0.78em; padding: 2px 7px; border: 1px solid #d0d0d0; background: #fafafa; color: #333; cursor: pointer; border-radius: 3px; white-space: nowrap; height: 24px; box-sizing: border-box; }",
         ".toolbar button:hover { background: #eee; }",
         ".toolbar button.active { background: #0969da; color: #fff; border-color: #0969da; }",
-        ".toolbar input { font-size: 0.78em; padding: 4px 8px; border: 1px solid #d0d0d0; border-radius: 3px; outline: none; height: 28px; box-sizing: border-box; }",
+        ".toolbar input { font-size: 0.78em; padding: 2px 8px; border: 1px solid #d0d0d0; border-radius: 3px; outline: none; height: 24px; box-sizing: border-box; }",
         ".toolbar input:focus { border-color: #0969da; }",
         ".search-wrap { position: relative; flex: 1; min-width: 0; }",
         ".search-wrap input { width: 100%; box-sizing: border-box; padding-right: 24px; }",
@@ -1051,7 +1052,7 @@ def build_html_scaffold_prefix(
         ".search-wrap input:not(:placeholder-shown) ~ .search-clear { display: block; }",
         ".toolbar .sep { width: 1px; height: 20px; background: #ddd; margin: 0 4px; }",
         ".font-picker { position: relative; }",
-        ".font-picker-btn { font-size: 0.82em; padding: 2px 8px; border: 1px solid #d0d0d0; background: #fafafa; color: #666; cursor: pointer; line-height: 1; font-family: serif; font-weight: 600; border-radius: 3px; height: 28px; box-sizing: border-box; }",
+        ".font-picker-btn { font-size: 0.82em; padding: 2px 7px; border: 1px solid #d0d0d0; background: #fafafa; color: #666; cursor: pointer; line-height: 1; font-family: serif; font-weight: 600; border-radius: 3px; height: 24px; box-sizing: border-box; }",
         ".font-picker-btn:hover { color: #333; }",
         ".font-picker-menu { display: none; position: absolute; right: 0; top: 100%; background: #fff; border: 1px solid #d0d0d0; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.12); z-index: 300; min-width: 170px; padding: 4px 0; max-height: 400px; overflow-y: auto; }",
         ".font-picker-label { font-size: 0.68em; color: #999; padding: 6px 12px 2px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }",
@@ -1060,7 +1061,7 @@ def build_html_scaffold_prefix(
         ".font-picker-item:hover { background: #f0f0f0; }",
         ".font-picker-item.active { color: #0969da; font-weight: 600; }",
         ".toolbar .match-count { font-size: 0.72em; color: #999; }",
-        ".toolbar-wrap { position: sticky; top: 0; z-index: 100; background: #fff; border-bottom: 1px solid #e0e0e0; }",
+        ".toolbar-wrap { position: sticky; top: 0; z-index: 100; background: #fff; border-bottom: 1px solid #e0e0e0; height: 38px; box-sizing: border-box; }",
         ".turn.search-hidden { display: none; }",
         "mark.search-hl { background: #fff3a8; color: inherit; padding: 0; border-radius: 0; line-height: inherit; }",
         "@media (max-width: 800px) { .main { padding: 12px; } .toolbar input { width: 120px; } }",
@@ -1070,12 +1071,13 @@ def build_html_scaffold_prefix(
         ".skeleton .sk-meta { height: 12px; width: 60%; background: #f0f0f0; border-radius: 4px; margin-bottom: 24px; }",
         ".skeleton .sk-turn { border-bottom: 1px solid #f0f0f0; padding: 16px 0; }",
         ".skeleton .sk-bar { background: #f0f0f0; border-radius: 4px; margin-bottom: 8px; animation: sk-pulse 1.2s ease-in-out infinite; }",
-        ".skeleton .sk-user { height: 14px; width: 70%; border-left: 3px solid #d0e0f0; padding-left: 10px; }",
-        ".skeleton .sk-reply { height: 12px; border-left: 3px solid #d0e8d0; padding-left: 10px; }",
+        ".skeleton .sk-user { height: 14px; width: 70%; }",
+        ".skeleton .sk-reply { height: 12px; }",
         ".skeleton .sk-r1 { width: 90%; }",
         ".skeleton .sk-r2 { width: 75%; }",
         ".skeleton .sk-r3 { width: 60%; }",
         "@keyframes sk-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }",
+        "body:not(.loaded) .page { display: none; }",
         "body.loaded .skeleton { display: none; }",
         # Thin scrollbars (sidebar and main content)
         "::-webkit-scrollbar { width: 6px; }",
@@ -1087,7 +1089,7 @@ def build_html_scaffold_prefix(
         # Sidebar panel: fixed left drawer, same font stack and border as toolbar.
         ".toc-sidebar { position: fixed; top: 0; left: -380px; width: 380px; height: 100vh; background: #fff; border-right: 1px solid #e0e0e0; z-index: 200; display: flex; flex-direction: column; font-family: 'Geist','Inter',-apple-system,'Segoe UI','Helvetica Neue',Arial,sans-serif; box-sizing: border-box; }",
         ".toc-sidebar.open { left: 0; }",
-        ".toc-sidebar.open ~ .toolbar-wrap, .toc-sidebar.open ~ .page { margin-left: 380px; }",
+        ".toc-sidebar.open ~ .toolbar-wrap, .toc-sidebar.open ~ .skeleton, .toc-sidebar.open ~ .page { margin-left: 380px; }",
         # Header matches toolbar: same padding, border, height
         ".toc-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px 7px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0; height: 38px; box-sizing: border-box; }",
         # Title span matches toolbar button sizing so toc-header height matches toolbar-wrap (38px).
