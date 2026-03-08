@@ -839,7 +839,7 @@ def favicon_link(engine_label: str) -> str:
     return f'<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,{fav_svg}">'
 
 
-def _engine_logo_html(engine_label: str) -> str:
+def engine_logo_html(engine_label: str) -> str:
     if not engine_label:
         return ""
     if "claude" in engine_label.lower():
@@ -847,7 +847,7 @@ def _engine_logo_html(engine_label: str) -> str:
     return LOGO_CODEX
 
 
-def _format_title_html(title: str) -> str:
+def format_title_html(title: str) -> str:
     if ": " in title:
         project, rest = title.split(": ", 1)
         return f'<b>{html.escape(project)}</b>: <span class="title-msg">{html.escape(rest)}</span>'
@@ -1007,23 +1007,32 @@ def build_html_scaffold_prefix(
         ".toolbar button { font-size: 0.78em; padding: 4px 10px; border: 1px solid #d0d0d0; background: #fafafa; color: #333; cursor: pointer; border-radius: 3px; white-space: nowrap; }",
         ".toolbar button:hover { background: #eee; }",
         ".toolbar button.active { background: #0969da; color: #fff; border-color: #0969da; }",
-        ".toolbar input { font-size: 0.78em; padding: 4px 8px; border: 1px solid #d0d0d0; border-radius: 3px; width: 200px; outline: none; flex: 1; min-width: 0; }",
+        ".toolbar input { font-size: 0.78em; padding: 4px 8px; border: 1px solid #d0d0d0; border-radius: 3px; outline: none; }",
         ".toolbar input:focus { border-color: #0969da; }",
+        ".search-wrap { position: relative; flex: 1; min-width: 0; }",
+        ".search-wrap input { width: 100%; box-sizing: border-box; padding-right: 24px; }",
+        ".search-clear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font-size: 0.85em; color: #999; cursor: pointer; display: none; }",
+        ".search-clear:hover { color: #333; }",
+        ".search-wrap input:not(:placeholder-shown) ~ .search-clear { display: block; }",
         ".toolbar .sep { width: 1px; height: 20px; background: #ddd; margin: 0 4px; }",
         ".toolbar .match-count { font-size: 0.72em; color: #999; }",
         ".toolbar-wrap { position: sticky; top: 0; z-index: 100; background: #fff; border-bottom: 1px solid #e0e0e0; }",
         ".turn.search-hidden { display: none; }",
         "mark.search-hl { background: #fff3a8; color: inherit; padding: 0; border-radius: 0; line-height: inherit; }",
         "@media (max-width: 800px) { .main { padding: 12px; } .toolbar input { width: 120px; } }",
+        # Thin scrollbars (sidebar and main content)
+        "::-webkit-scrollbar { width: 6px; }",
+        "::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }",
+        "::-webkit-scrollbar-thumb:hover { background: #999; }",
+        "* { scrollbar-width: thin; scrollbar-color: #ccc transparent; }",
         # Sidebar TOC (injected by batch post-processing; CSS is always present, no-op if no sidebar)
         # Hamburger inherits .toolbar button styling via the cascade — no extra rules needed.
         # Sidebar panel: fixed left drawer, same font stack and border as toolbar.
-        ".toc-sidebar { position: fixed; top: 0; left: -300px; width: 300px; height: 100vh; background: #fff; border-right: 1px solid #e0e0e0; z-index: 200; display: flex; flex-direction: column; font-family: 'Geist','Inter',-apple-system,'Segoe UI','Helvetica Neue',Arial,sans-serif; }",
+        ".toc-sidebar { position: fixed; top: 0; left: -380px; width: 380px; height: 100vh; background: #fff; border-right: 1px solid #e0e0e0; z-index: 200; display: flex; flex-direction: column; font-family: 'Geist','Inter',-apple-system,'Segoe UI','Helvetica Neue',Arial,sans-serif; box-sizing: border-box; }",
         ".toc-sidebar.open { left: 0; }",
-        ".toc-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.12); z-index: 199; }",
-        ".toc-sidebar.open ~ .toc-overlay { display: block; }",
+        ".toc-sidebar.open ~ .toolbar-wrap, .toc-sidebar.open ~ .page { margin-left: 380px; }",
         # Header matches toolbar: same padding, border, height
-        ".toc-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0; height: 38px; box-sizing: border-box; }",
+        ".toc-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px 7px; border-bottom: 1px solid #e0e0e0; flex-shrink: 0; height: 38px; box-sizing: border-box; }",
         # Title span matches toolbar button sizing so toc-header height matches toolbar-wrap (38px).
         ".toc-header span { font-size: 0.78em; line-height: normal; font-weight: 600; color: #333; padding: 4px 0; border-top: 1px solid transparent; border-bottom: 1px solid transparent; display: flex; align-items: center; gap: 6px; }",
         ".toc-header .engine-logo { width: 14px; height: 14px; }",
@@ -1032,7 +1041,8 @@ def build_html_scaffold_prefix(
         # Scrollable list fills remaining space
         ".toc-list { list-style: none; padding: 0; margin: 0; overflow-y: auto; flex: 1; }",
         ".toc-list li { border-bottom: 1px solid #e0e0e0; margin: 0; }",
-        ".toc-list a { display: block; padding: 8px 12px; text-decoration: none; color: #333; font-size: 0.78em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
+        ".toc-list a { display: block; padding: 8px 12px; text-decoration: none; color: #333; font-size: 0.78em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.5; }",
+        ".toc-meta { display: block; font-size: 0.9em; color: #999; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }",
         ".toc-list a:hover { background: #f6f8fa; }",
         ".toc-list a.current { background: #e8f0fe; color: #1967d2; }",
         ".toc-list .toc-project { font-weight: 700; }",
@@ -1105,10 +1115,10 @@ def build_html_scaffold_prefix(
         "</script>",
         "</head>",
         "<body>",
-        '<div class="toolbar-wrap"><div class="toolbar"><input id="search-input" type="text" placeholder="Search" oninput="onSearch(this.value)"><span id="match-count" class="match-count"></span><div class="sep"></div><button onclick="jumpTop()">Top</button><button onclick="jumpBottom()">Bottom</button><div class="sep"></div><button onclick="toggleExpandAll(this)">Expand All</button></div></div>',
+        '<div class="toolbar-wrap"><div class="toolbar"><div class="search-wrap"><input id="search-input" type="text" placeholder="Search" oninput="onSearch(this.value)"><span id="search-clear" class="search-clear" onclick="document.getElementById(\'search-input\').value=\'\';onSearch(\'\')">&times;</span></div><span id="match-count" class="match-count"></span><div class="sep"></div><button onclick="jumpTop()">Top</button><button onclick="jumpBottom()">Bottom</button><div class="sep"></div><button onclick="toggleExpandAll(this)">Expand All</button></div></div>',
         '<div class="page"><div class="main">',
         '<div class="header">',
-        f"<h1>{_engine_logo_html(engine_label)}{_format_title_html(title)}</h1>",
+        f"<h1>{engine_logo_html(engine_label)}{format_title_html(title)}</h1>",
         f'<div class="meta">{header_meta_html}</div>',
         "</div>",
     ]
@@ -1361,18 +1371,46 @@ def _run_batch_task(task: tuple[str, str, str, list[str], str]) -> str:
     return f"FAIL {session_id} ({size_mb:.1f}MB): {result.stderr[-200:] or result.stdout[-200:]}"
 
 
-def _extract_html_title(path: str) -> str:
-    """Read just enough of an HTML file to extract its <title> content."""
+def extract_html_meta(path: str) -> dict[str, str]:
+    """Read the start of an HTML file to extract title and header metadata."""
     try:
         with open(path, encoding="utf-8") as f:
-            head = f.read(4096)
-        match = re.search(r"<title>(.*?)</title>", head)
-        return match.group(1) if match else os.path.basename(path)
+            head = f.read(32768)
     except Exception:
-        return os.path.basename(path)
+        return {"title": os.path.basename(path)}
+    title_m = re.search(r"<title>(.*?)</title>", head)
+    title = title_m.group(1) if title_m else os.path.basename(path)
+    # Extract date (first <span> in .meta)
+    date = ""
+    date_m = re.search(r'<div class="meta"><span>([^<]+)', head)
+    if date_m:
+        raw = date_m.group(1).strip()
+        # "2026-03-07 04:44:05 - 2026-03-08 03:24:43" → "Mar 7"
+        ts_m = re.match(r"(\d{4})-(\d{2})-(\d{2})", raw)
+        if ts_m:
+            months = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            date = f"{months[int(ts_m.group(2))]} {int(ts_m.group(3))}"
+    # Extract turns count
+    turns = ""
+    turns_m = re.search(r"<b>(\d+)</b>\s*turns", head)
+    if turns_m:
+        turns = turns_m.group(1)
+    # Extract output token count (e.g. "186,429 out tokens")
+    tokens = ""
+    tok_m = re.search(r"([\d,]+)\s*out tokens", head)
+    if tok_m:
+        raw_tok = int(tok_m.group(1).replace(",", ""))
+        if raw_tok >= 1_000_000:
+            tokens = f"{raw_tok / 1_000_000:.1f}M"
+        elif raw_tok >= 1_000:
+            tokens = f"{raw_tok // 1_000}K"
+        else:
+            tokens = str(raw_tok)
+    return {"title": title, "date": date, "turns": turns, "tokens": tokens}
 
 
-def _format_toc_entry(title: str) -> str:
+def format_toc_entry(title: str) -> str:
     """Format title as <span class=toc-project>bold</span>: <span class=toc-msg>rest</span>."""
     title = html.unescape(title)
     if ": " in title:
@@ -1388,12 +1426,20 @@ def inject_toc_sidebar(output_paths: list[str], *, engine_label: str = "") -> No
     Injects a hamburger button into the toolbar and a sidebar div after <body>.
     Each file highlights its own entry as 'current'.
     """
-    # Collect titles and filenames
-    entries: list[tuple[str, str, str]] = []  # (filename, title, formatted_html)
+    # Collect titles, metadata, and filenames
+    entries: list[tuple[str, str, str]] = []  # (filename, title_html, meta_html)
     for path in sorted(output_paths):
-        title = _extract_html_title(path)
-        formatted = _format_toc_entry(title)
-        entries.append((os.path.basename(path), title, formatted))
+        meta = extract_html_meta(path)
+        title_html = format_toc_entry(meta["title"])
+        info_parts = []
+        if meta.get("date"):
+            info_parts.append(meta["date"])
+        if meta.get("turns"):
+            info_parts.append(f'{meta["turns"]} turns')
+        if meta.get("tokens"):
+            info_parts.append(f'{meta["tokens"]} tokens')
+        meta_html = f'<span class="toc-meta">{" · ".join(info_parts)}</span>' if info_parts else ""
+        entries.append((os.path.basename(path), title_html, meta_html))
 
     hamburger = '<button class="toc-hamburger" onclick="toggleToc()" title="All transcripts">&#9776;</button>'
     toc_fn_js = (
@@ -1406,14 +1452,16 @@ def inject_toc_sidebar(output_paths: list[str], *, engine_label: str = "") -> No
     toc_head_js = (
         '<script>'
         'if(new URLSearchParams(location.search).has("toc")){'
-        'document.write(\'<style>.toc-sidebar{left:0}</style>\');}'
+        'document.write(\'<style id="toc-instant">.toc-sidebar{left:0!important}</style>\');}'
         '</script>'
     )
-    # Runs after sidebar div: adds .open class and restores scroll position.
+    # Runs after sidebar div: adds .open class, removes head override, restores scroll.
     toc_auto_open_js = (
         '<script>'
         'if(new URLSearchParams(location.search).has("toc")){'
         'document.querySelector(".toc-sidebar").classList.add("open");'
+        # Remove the head CSS override so closeToc() can work (toggling .open controls left)
+        'var o=document.getElementById("toc-instant");if(o)o.remove();'
         # Restore sidebar scroll position from previous page
         'var l=document.querySelector(".toc-list");'
         'var s=sessionStorage.getItem("tocScroll");'
@@ -1429,19 +1477,18 @@ def inject_toc_sidebar(output_paths: list[str], *, engine_label: str = "") -> No
         current_file = os.path.basename(path)
         # Build sidebar HTML
         li_items = []
-        for filename, _title, formatted in entries:
+        for filename, title_html, meta_html in entries:
             cls = ' class="current"' if filename == current_file else ""
-            li_items.append(f'<li><a href="{html.escape(filename)}?toc=1"{cls}>{formatted}</a></li>')
+            li_items.append(f'<li><a href="{html.escape(filename)}?toc=1"{cls}>{title_html}{meta_html}</a></li>')
         sidebar_html = (
             f'{toc_fn_js}'
             '<div class="toc-sidebar">'
             '<div class="toc-header">'
-            f'<span>{_engine_logo_html(engine_label)}{len(entries)} Transcripts</span>'
+            f'<span>{engine_logo_html(engine_label)}{len(entries)} Transcripts</span>'
             '<button class="toc-close" onclick="closeToc()">&times;</button>'
             '</div>'
             f'<ul class="toc-list">{"".join(li_items)}</ul>'
             '</div>'
-            '<div class="toc-overlay" onclick="closeToc()"></div>'
             f'{toc_auto_open_js}'
         )
 
