@@ -1,3 +1,9 @@
 out/
 __pycache__/
 *.pyc
+.DS_Store
+transcript.html
+demo-output/
+test-results/
+test/snapshots/
+.pytest_cache/

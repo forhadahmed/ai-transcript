@@ -1,0 +1,469 @@
+#!/usr/bin/env python3
+"""Render Codex session JSONL files as shareable HTML."""
+
+from __future__ import annotations
+
+import html
+import json
+import os
+import re
+import sys
+from typing import Any
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from renderer import (
+    ERROR_TEXT_RE,
+    Redactor,
+    extract_result_text,
+    git_project_name,
+    is_boilerplate_result,
+    json_loads,
+    read_jsonl_records,
+    render_patch,
+    strip_system_tags,
+    transcript_main,
+)
+
+
+# ---------------------------------------------------------------------------
+# Codex-specific constants
+# ---------------------------------------------------------------------------
+
+PATCH_HEADER_RE = re.compile(r"^\*\*\* (Add|Update|Delete) File: (.+)$", re.MULTILINE)
+EXIT_CODE_RE = re.compile(r"Process exited with code (\d+)")
+
+
+# ---------------------------------------------------------------------------
+# Codex-specific helpers
+# ---------------------------------------------------------------------------
+
+
+def parse_tool_input(raw: Any) -> Any:
+    if isinstance(raw, str):
+        stripped = raw.strip()
+        if not stripped:
+            return {}
+        if stripped.startswith("{") or stripped.startswith("["):
+            try:
+                return json_loads(stripped)
+            except Exception:
+                return raw
+        return raw
+    return raw
+
+
+def codex_reasoning_text(payload: dict[str, Any]) -> str:
+    content = payload.get("content")
+    if isinstance(content, str) and content.strip():
+        return content.strip()
+    summary = payload.get("summary")
+    if not isinstance(summary, list):
+        return ""
+    parts: list[str] = []
+    for item in summary:
+        if isinstance(item, str) and item.strip():
+            parts.append(item.strip())
+        elif isinstance(item, dict):
+            text = item.get("text", "")
+            if text:
+                parts.append(str(text).strip())
+    return "\n".join(part for part in parts if part)
+
+
+def patch_summary(patch_text: str) -> str:
+    match = PATCH_HEADER_RE.search(patch_text or "")
+    if match:
+        action, path = match.groups()
+        return f"{action} {os.path.basename(path)}"
+    first_line = (patch_text or "").strip().splitlines()
+    if not first_line:
+        return "apply_patch"
+    return first_line[0][:140]
+
+
+def parse_tool_output_text(raw: Any) -> tuple[str, bool]:
+    if raw is None:
+        return "", False
+    if not isinstance(raw, str):
+        return json.dumps(raw, indent=2, default=str), False
+
+    stripped = raw.strip()
+    if not stripped:
+        return "", False
+
+    is_error = False
+    if stripped.startswith("{") or stripped.startswith("["):
+        try:
+            parsed = json_loads(stripped)
+        except Exception:
+            parsed = None
+        if isinstance(parsed, dict):
+            metadata = parsed.get("metadata", {})
+            if isinstance(metadata, dict) and metadata.get("exit_code", 0):
+                is_error = True
+            text = parsed.get("output")
+            if isinstance(text, str):
+                return text, is_error
+            return json.dumps(parsed, indent=2, default=str), is_error
+
+    exit_match = EXIT_CODE_RE.search(raw)
+    if exit_match and exit_match.group(1) != "0":
+        is_error = True
+    return raw, is_error
+
+
+# ---------------------------------------------------------------------------
+# Tool summary / detail (Codex tools)
+# ---------------------------------------------------------------------------
+
+
+def tool_summary(block: dict[str, Any]) -> tuple[str, str]:
+    name = block.get("name", "?")
+    payload = block.get("input", {})
+    if isinstance(payload, str):
+        payload = {"text": payload}
+    if name == "exec_command":
+        label = payload.get("cmd", "")[:140]
+        return f"$ {label}", "bash"
+    if name == "apply_patch":
+        return patch_summary(str(block.get("raw_input", payload.get("text", "")))), "edit"
+    if name == "update_plan":
+        plan = payload.get("plan", [])
+        return f"update_plan ({len(plan)} step{'s' if len(plan) != 1 else ''})", "task"
+    if name in ("spawn_agent", "send_input", "wait", "resume_agent", "close_agent"):
+        return f"{name} {str(payload)[:90]}", "agent"
+    if name == "web_search":
+        return "web_search", "search"
+    return name, "other"
+
+
+def tool_detail(block: dict[str, Any], args: Any) -> str:
+    name = block.get("name", "?")
+    payload = block.get("input", {})
+    parts: list[str] = []
+    if isinstance(payload, str):
+        payload = {"text": payload}
+    if name == "exec_command":
+        for key in ("cmd", "workdir", "yield_time_ms"):
+            value = payload.get(key)
+            if value in (None, "", []):
+                continue
+            if key == "cmd":
+                parts.append(f"<pre>{html.escape(str(value))}</pre>")
+            else:
+                parts.append(f'<div class="dim">{html.escape(key)}={html.escape(str(value))}</div>')
+    elif name == "apply_patch":
+        patch_text = str(block.get("raw_input", payload.get("text", "")))
+        if not args.no_diffs:
+            parts.append(render_patch(patch_text, args.full_output))
+    elif name == "update_plan":
+        explanation = payload.get("explanation", "")
+        if explanation:
+            parts.append(f'<div class="dim">{html.escape(explanation)}</div>')
+        plan = payload.get("plan", [])
+        if isinstance(plan, list):
+            lines = []
+            for step in plan:
+                if isinstance(step, dict):
+                    lines.append(f"[{step.get('status', '?')}] {step.get('step', '')}")
+            if lines:
+                parts.append(f"<pre>{html.escape(chr(10).join(lines))}</pre>")
+    elif name in ("spawn_agent", "send_input", "wait", "resume_agent", "close_agent", "web_search"):
+        value_str = json.dumps(payload, indent=2, default=str)
+        if len(value_str) > 1000:
+            value_str = value_str[:1000] + f"\n...({len(value_str)} chars)"
+        parts.append(f"<pre>{html.escape(value_str)}</pre>")
+    else:
+        for key, value in payload.items():
+            parts.append(
+                f'<span class="dim">{html.escape(key)}={html.escape(str(value)[:200])}</span>'
+            )
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# parse_transcript (Codex JSONL format)
+# ---------------------------------------------------------------------------
+
+
+def parse_transcript(path: str, args: Any) -> dict[str, Any]:
+    records, malformed = read_jsonl_records(path)
+    redactor = Redactor(args)
+    turns: list[dict[str, Any]] = []
+    current_turn: dict[str, Any] | None = None
+    pending_tools: dict[str, dict[str, Any]] = {}
+    session_meta: dict[str, Any] = {}
+
+    def flush_turn() -> None:
+        nonlocal current_turn
+        if current_turn and (current_turn.get("user_text") or current_turn.get("items")):
+            turns.append(current_turn)
+        current_turn = None
+
+    def ensure_turn(ts: str) -> dict[str, Any]:
+        nonlocal current_turn
+        if current_turn is None:
+            current_turn = {
+                "type": "turn",
+                "user_text": "",
+                "user_ts": ts,
+                "user_is_error": False,
+                "items": [],
+                "duration_ms": 0,
+                "has_errors": False,
+                "output_tokens": 0,
+                "input_tokens": 0,
+                "turn_id": "",
+            }
+        return current_turn
+
+    for record in records:
+        rtype = record.get("type")
+        ts = record.get("timestamp", "")
+
+        if rtype == "session_meta":
+            payload = record.get("payload", {})
+            if isinstance(payload, dict):
+                session_meta = payload
+            continue
+
+        if rtype == "compacted":
+            flush_turn()
+            turns.append({"type": "compaction", "ts": ts, "tokens": ""})
+            continue
+
+        payload = record.get("payload")
+        if not isinstance(payload, dict):
+            continue
+
+        payload_type = payload.get("type")
+
+        if payload_type == "context_compacted":
+            flush_turn()
+            turns.append({"type": "compaction", "ts": ts, "tokens": ""})
+            continue
+
+        if payload_type == "user_message":
+            flush_turn()
+            text = redactor.redact_text(strip_system_tags(payload.get("message", "")))
+            current_turn = {
+                "type": "turn",
+                "user_text": text,
+                "user_ts": ts,
+                "user_is_error": bool(ERROR_TEXT_RE.search(text)),
+                "items": [],
+                "duration_ms": 0,
+                "has_errors": False,
+                "output_tokens": 0,
+                "input_tokens": 0,
+                "turn_id": "",
+            }
+            continue
+
+        if payload_type == "task_started":
+            turn = ensure_turn(ts)
+            turn["turn_id"] = payload.get("turn_id", "")
+            continue
+
+        if payload_type == "turn_aborted":
+            turn = ensure_turn(ts)
+            turn["truncated"] = True
+            turn["has_errors"] = True
+            continue
+
+        if payload_type == "task_complete":
+            turn = ensure_turn(ts)
+            turn["turn_id"] = turn.get("turn_id") or payload.get("turn_id", "")
+            continue
+
+        if payload_type == "token_count":
+            turn = ensure_turn(ts)
+            info = payload.get("info", {})
+            usage = {}
+            if isinstance(info, dict):
+                usage = info.get("last_token_usage") or info.get("total_token_usage") or {}
+            if isinstance(usage, dict):
+                turn["input_tokens"] = max(
+                    turn.get("input_tokens", 0),
+                    int(usage.get("input_tokens", 0)) + int(usage.get("cached_input_tokens", 0)),
+                )
+                turn["output_tokens"] = max(
+                    turn.get("output_tokens", 0),
+                    int(usage.get("output_tokens", 0)) + int(usage.get("reasoning_output_tokens", 0)),
+                )
+            continue
+
+        if payload_type == "agent_message":
+            turn = ensure_turn(ts)
+            text = redactor.redact_text(strip_system_tags(payload.get("message", "").strip()))
+            if text:
+                turn["items"].append(
+                    {
+                        "kind": "reply",
+                        "ts": ts,
+                        "text": text,
+                        "phase": payload.get("phase", ""),
+                        "is_error": bool(ERROR_TEXT_RE.search(text)),
+                    }
+                )
+                if ERROR_TEXT_RE.search(text):
+                    turn["has_errors"] = True
+            continue
+
+        if payload_type == "reasoning":
+            text = redactor.redact_text(codex_reasoning_text(payload))
+            if text:
+                ensure_turn(ts)["items"].append({"kind": "thinking", "ts": ts, "text": text})
+            continue
+
+        if payload_type in ("function_call", "custom_tool_call"):
+            turn = ensure_turn(ts)
+            raw_input = payload.get("arguments", "") if payload_type == "function_call" else payload.get("input", "")
+            parsed_input = parse_tool_input(raw_input)
+            diff_adds = diff_dels = 0
+            if payload.get("name") == "apply_patch":
+                for patch_line in str(raw_input).splitlines():
+                    if patch_line.startswith("+"):
+                        diff_adds += 1
+                    elif patch_line.startswith("-"):
+                        diff_dels += 1
+            tool_call = {
+                "kind": "tool_call",
+                "ts": ts,
+                "block": {
+                    "name": payload.get("name", "?"),
+                    "input": redactor.redact_obj(parsed_input),
+                    "raw_input": redactor.redact_text(str(raw_input)),
+                    "call_id": payload.get("call_id", ""),
+                },
+                "result_text": None,
+                "result_is_error": False,
+                "diff_adds": diff_adds,
+                "diff_dels": diff_dels,
+                "inner_tools": [],
+            }
+            turn["items"].append(tool_call)
+            call_id = payload.get("call_id", "")
+            if call_id:
+                pending_tools[call_id] = tool_call
+            continue
+
+        if payload_type == "web_search_call":
+            ensure_turn(ts)["items"].append(
+                {
+                    "kind": "tool_call",
+                    "ts": ts,
+                    "block": {
+                        "name": "web_search",
+                        "input": redactor.redact_obj(payload),
+                        "raw_input": "",
+                        "call_id": "",
+                    },
+                    "result_text": None,
+                    "result_is_error": False,
+                    "diff_adds": 0,
+                    "diff_dels": 0,
+                    "inner_tools": [],
+                }
+            )
+            continue
+
+        if payload_type in ("function_call_output", "custom_tool_call_output"):
+            text, is_error = parse_tool_output_text(payload.get("output"))
+            text = redactor.redact_text(text)
+            if not text.strip():
+                continue
+            call_id = payload.get("call_id", "")
+            tool_call = pending_tools.get(call_id)
+            if tool_call is not None:
+                tool_call["result_text"] = text
+                tool_call["result_is_error"] = is_error
+                if is_error:
+                    ensure_turn(ts)["has_errors"] = True
+            elif not is_boilerplate_result(text, args):
+                turn = ensure_turn(ts)
+                turn["items"].append(
+                    {
+                        "kind": "tool_output",
+                        "ts": ts,
+                        "text": text,
+                        "is_error": is_error,
+                    }
+                )
+                if is_error:
+                    turn["has_errors"] = True
+            continue
+
+    flush_turn()
+
+    total_input = sum(t.get("input_tokens", 0) for t in turns if t["type"] == "turn")
+    total_output = sum(t.get("output_tokens", 0) for t in turns if t["type"] == "turn")
+
+    return {
+        "turns": turns,
+        "turn_count": sum(1 for t in turns if t["type"] == "turn"),
+        "compaction_count": sum(1 for t in turns if t["type"] == "compaction"),
+        "total_tool_calls": sum(
+            1
+            for t in turns
+            if t["type"] == "turn"
+            for item in t["items"]
+            if item["kind"] == "tool_call"
+        ),
+        "total_input": total_input,
+        "total_output": total_output,
+        "total_cache_create": 0,
+        "total_cache_read": 0,
+        "cost_total": None,
+        "malformed_lines": malformed,
+        "redactor": redactor,
+        "session_meta": session_meta,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Auto-title
+# ---------------------------------------------------------------------------
+
+
+def auto_title(path: str, turns: list[dict[str, Any]], turn_count: int, data: dict[str, Any]) -> str:
+    cwd = ""
+    session_meta = data.get("session_meta")
+    if isinstance(session_meta, dict):
+        cwd = session_meta.get("cwd", "")
+    project, is_git = git_project_name(cwd)
+    data["is_git"] = is_git
+    if not project:
+        project = os.path.basename(os.path.dirname(os.path.abspath(path)))
+    if project in ("", "home", os.path.basename(os.path.expanduser("~"))):
+        project = ""
+    first_user = ""
+    for turn in turns:
+        if turn["type"] == "turn" and turn.get("user_text", "").strip():
+            first_user = turn["user_text"].strip().split("\n")[0][:80]
+            break
+    pieces = [piece for piece in (project, first_user) if piece]
+    return ": ".join(pieces) if pieces else f"Codex Transcript - {turn_count} turns"
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+
+if __name__ == "__main__":
+    raise SystemExit(
+        transcript_main(
+            description="Render Codex session JSONL files as HTML",
+            default_outdir=os.path.expanduser("~/codex-transcripts"),
+            script_path=os.path.abspath(__file__),
+            jsonl_root=os.path.expanduser("~/.codex/sessions"),
+            min_file_size=256,
+            recursive_glob=True,
+            parse_fn=parse_transcript,
+            auto_title_fn=auto_title,
+            tool_summary_fn=tool_summary,
+            tool_detail_fn=tool_detail,
+            engine_label="Codex",
+        )
+    )

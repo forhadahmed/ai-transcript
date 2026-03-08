@@ -1,0 +1,7 @@
+{"type":"user","timestamp":"2026-03-01T10:00:00Z","message":{"content":"First message"}}
+{"type":"assistant","timestamp":"2026-03-01T10:00:05Z","message":{"id":"a1","usage":{"input_tokens":1200,"output_tokens":2400},"stop_reason":"end_turn","content":[{"type":"text","text":"Reply one."}]}}
+{"type":"system","subtype":"compact_boundary","timestamp":"2026-03-01T10:30:00Z","compactMetadata":{"preTokens":"50000"}}
+{"type":"system","subtype":"compact_boundary","timestamp":"2026-03-01T11:00:00Z","compactMetadata":{"preTokens":"40000"}}
+{"type":"system","subtype":"compact_boundary","timestamp":"2026-03-01T11:30:00Z","compactMetadata":{"preTokens":"30000"}}
+{"type":"user","timestamp":"2026-03-01T12:00:00Z","message":{"content":"Second message"}}
+{"type":"assistant","timestamp":"2026-03-01T12:00:05Z","message":{"id":"a2","usage":{"input_tokens":500,"output_tokens":1000},"stop_reason":"end_turn","content":[{"type":"text","text":"Reply two."}]}}

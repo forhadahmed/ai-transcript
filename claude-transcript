@@ -1,0 +1,501 @@
+#!/usr/bin/env python3
+"""Render Claude Code transcript JSONL files as shareable HTML."""
+
+from __future__ import annotations
+
+import difflib
+import html
+import json
+import os
+import re
+import sys
+from typing import Any
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from renderer import (
+    ERROR_TEXT_RE,
+    OPUS_COST_CACHE_READ,
+    OPUS_COST_CACHE_WRITE,
+    OPUS_COST_INPUT,
+    OPUS_COST_OUTPUT,
+    Redactor,
+    compute_opus_cost,
+    estimate_message_size,
+    extract_result_text,
+    git_project_name,
+    is_boilerplate_result,
+    mcp_name,
+    read_jsonl_records,
+    render_diff,
+    strip_system_tags,
+    transcript_main,
+)
+
+
+# ---------------------------------------------------------------------------
+# Tool summary / detail (Claude Code tools)
+# ---------------------------------------------------------------------------
+
+
+def tool_summary(block: dict[str, Any]) -> tuple[str, str]:
+    name = block.get("name", "?")
+    payload = block.get("input", {})
+    if name == "Bash":
+        label = payload.get("description", "") or payload.get("command", "")[:140]
+        return f"$ {label}", "bash"
+    if name == "Read":
+        return f"Read {payload.get('file_path', '')}", "read"
+    if name in ("Glob", "Grep"):
+        pattern = payload.get("pattern", "")
+        path = payload.get("path", "")
+        return f"{name} {pattern}{' in ' + path if path else ''}", "search"
+    if name in ("Edit", "Write"):
+        return payload.get("file_path", ""), "edit"
+    if name == "Agent":
+        return f"Agent: {payload.get('description', '')}", "agent"
+    if "mcp__" in name:
+        friendly = mcp_name(name)
+        intent = payload.get("intent", "")
+        return (f"{friendly} - {intent}" if intent else friendly), "mcp"
+    if name in ("TaskCreate", "TaskUpdate", "TaskOutput", "TaskStop", "Skill"):
+        bits = [str(v)[:50] for v in payload.values() if isinstance(v, str) and len(v) < 60]
+        return f"{name} {' '.join(bits)[:80]}", "task"
+    return name, "other"
+
+
+def tool_detail(block: dict[str, Any], args: Any) -> str:
+    name = block.get("name", "?")
+    payload = block.get("input", {})
+    parts: list[str] = []
+    if name == "Bash":
+        desc = payload.get("description", "")
+        if desc:
+            parts.append(f'<div class="dim">{html.escape(desc)}</div>')
+        parts.append(f'<pre>{html.escape(payload.get("command", ""))}</pre>')
+    elif name == "Read":
+        parts.append(f'<code>{html.escape(payload.get("file_path", ""))}</code>')
+        offset = payload.get("offset", "")
+        limit = payload.get("limit", "")
+        if offset or limit:
+            parts.append(f'<span class="dim">offset={offset} limit={limit}</span>')
+    elif name in ("Glob", "Grep"):
+        for key, value in payload.items():
+            parts.append(
+                f'<span class="dim">{html.escape(key)}={html.escape(str(value)[:200])}</span>'
+            )
+    elif name in ("Edit", "Write"):
+        old = payload.get("old_string", "")
+        new = payload.get("new_string", "")
+        if (old or new) and not args.no_diffs:
+            parts.append(render_diff(old, new))
+    elif name == "Agent":
+        parts.append(f'<div class="dim">{html.escape(payload.get("description", ""))}</div>')
+        parts.append(f'<pre>{html.escape(payload.get("prompt", "")[:500])}</pre>')
+    elif "mcp__" in name:
+        for key, value in payload.items():
+            if isinstance(value, str):
+                value_str = value
+            else:
+                value_str = json.dumps(value, indent=2, default=str)
+            if len(value_str) > 500:
+                value_str = value_str[:500] + f"\n...({len(value_str)} chars)"
+            parts.append(
+                '<div class="mcp-field">'
+                f'<span class="mcp-key">{html.escape(key)}:</span>'
+                f"<pre>{html.escape(value_str)}</pre></div>"
+            )
+    else:
+        for key, value in payload.items():
+            parts.append(
+                f'<span class="dim">{html.escape(key)}={html.escape(str(value)[:200])}</span>'
+            )
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# parse_transcript — broken into phases
+# ---------------------------------------------------------------------------
+
+
+def _collect_items(
+    records: list[dict[str, Any]],
+    redactor: Redactor,
+    args: Any,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+    """Phase 1: categorize records into items, assistant entries, and agent progress."""
+    items: list[dict[str, Any]] = []
+    assistant_entries: list[dict[str, Any]] = []
+    seen_assistant: dict[str, dict[str, Any]] = {}
+    agent_progress: dict[str, list[dict[str, Any]]] = {}
+
+    for record in records:
+        rtype = record.get("type")
+        ts = record.get("timestamp", "")
+
+        if rtype == "system" and record.get("subtype") == "compact_boundary":
+            pre = record.get("compactMetadata", {}).get("preTokens", "")
+            items.append({"kind": "compaction", "ts": ts, "tokens": pre})
+            continue
+
+        if rtype == "system" and record.get("subtype") == "turn_duration":
+            ms = record.get("durationMs", 0)
+            if ms:
+                items.append({"kind": "duration", "ts": ts, "ms": ms})
+            continue
+
+        if rtype == "progress" and record.get("parentToolUseID"):
+            parent_id = record.get("parentToolUseID")
+            data = record.get("data", {})
+            if isinstance(data, dict) and data.get("type") == "agent_progress":
+                inner_message = data.get("message", {})
+                if isinstance(inner_message, dict):
+                    content = inner_message.get("message", {}).get("content", [])
+                    if isinstance(content, list):
+                        agent_progress.setdefault(parent_id, []).extend(
+                            block
+                            for block in content
+                            if isinstance(block, dict) and block.get("type") == "tool_use"
+                        )
+            continue
+
+        if rtype == "assistant":
+            message = record.get("message", {})
+            message_id = message.get("id")
+            entry = {"rec": record, "sz": estimate_message_size(message.get("content"))}
+            if message_id:
+                existing = seen_assistant.get(message_id)
+                if existing:
+                    if entry["sz"] > existing["sz"]:
+                        existing["rec"] = record
+                        existing["sz"] = entry["sz"]
+                    continue
+                seen_assistant[message_id] = entry
+            assistant_entries.append(entry)
+            items.append(entry)
+            continue
+
+        if rtype != "user":
+            continue
+
+        message = record.get("message", {})
+        content = message.get("content", "")
+
+        if isinstance(content, str):
+            clean = redactor.redact_text(strip_system_tags(content))
+            if clean:
+                item: dict[str, Any] = {"kind": "user", "ts": ts, "text": clean}
+                if ERROR_TEXT_RE.search(clean):
+                    item["is_error"] = True
+                items.append(item)
+            continue
+
+        if not isinstance(content, list):
+            continue
+
+        texts = []
+        results = []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "text":
+                cleaned = redactor.redact_text(strip_system_tags(block.get("text", "")))
+                if cleaned:
+                    texts.append(cleaned)
+            elif block.get("type") == "tool_result":
+                results.append(block)
+
+        if texts:
+            joined = "\n".join(texts)
+            item = {"kind": "user", "ts": ts, "text": joined}
+            if ERROR_TEXT_RE.search(joined):
+                item["is_error"] = True
+            items.append(item)
+
+        for result in results:
+            text = redactor.redact_text(extract_result_text(result))
+            if text.strip() and not is_boilerplate_result(text, args):
+                items.append(
+                    {
+                        "kind": "tool_output",
+                        "ts": ts,
+                        "text": text,
+                        "is_error": bool(result.get("is_error")),
+                    }
+                )
+
+    return items, assistant_entries, agent_progress
+
+
+def _compute_token_stats(assistant_entries: list[dict[str, Any]]) -> dict[str, Any]:
+    """Compute token counts and cost estimate from assistant entries."""
+    total_input = 0
+    total_output = 0
+    total_cache_create = 0
+    total_cache_read = 0
+    for entry in assistant_entries:
+        usage = entry["rec"].get("message", {}).get("usage") or {}
+        total_input += usage.get("input_tokens", 0)
+        total_output += usage.get("output_tokens", 0)
+        total_cache_create += usage.get("cache_creation_input_tokens", 0)
+        total_cache_read += usage.get("cache_read_input_tokens", 0)
+    return {
+        "total_input": total_input,
+        "total_output": total_output,
+        "total_cache_create": total_cache_create,
+        "total_cache_read": total_cache_read,
+        "cost_total": compute_opus_cost(total_input, total_output, total_cache_create, total_cache_read),
+    }
+
+
+def _resolve_assistant_items(
+    items: list[dict[str, Any]],
+    redactor: Redactor,
+    args: Any,
+    agent_progress: dict[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    """Phase 2: expand assistant entries into reply/thinking/tool_call items."""
+    resolved: list[dict[str, Any]] = []
+    for item in items:
+        if "rec" not in item:
+            resolved.append(item)
+            continue
+
+        record = item["rec"]
+        message = record.get("message", {})
+        ts = record.get("timestamp", "")
+        content = message.get("content", "")
+        usage = message.get("usage", {}) or {}
+        msg_output_tokens = usage.get("output_tokens", 0)
+        stop_reason = message.get("stop_reason", "")
+        first_item_idx = len(resolved)
+        pending_tool: dict[str, Any] | None = None
+
+        if isinstance(content, str):
+            text = redactor.redact_text(content.strip())
+            if text:
+                reply: dict[str, Any] = {"kind": "reply", "ts": ts, "text": text}
+                if ERROR_TEXT_RE.search(text):
+                    reply["is_error"] = True
+                resolved.append(reply)
+        elif isinstance(content, list):
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                block_type = block.get("type", "")
+
+                if block_type == "text":
+                    text = redactor.redact_text(block.get("text", "").strip())
+                    if not text:
+                        continue
+                    if pending_tool:
+                        resolved.append(pending_tool)
+                        pending_tool = None
+                    reply = {"kind": "reply", "ts": ts, "text": text}
+                    if ERROR_TEXT_RE.search(text):
+                        reply["is_error"] = True
+                    resolved.append(reply)
+                    continue
+
+                if block_type == "thinking":
+                    thinking = redactor.redact_text(block.get("thinking", "").strip())
+                    if thinking:
+                        if pending_tool:
+                            resolved.append(pending_tool)
+                            pending_tool = None
+                        resolved.append({"kind": "thinking", "ts": ts, "text": thinking})
+                    continue
+
+                if block_type == "tool_use":
+                    if pending_tool:
+                        resolved.append(pending_tool)
+                    redacted_block = redactor.redact_obj(block)
+                    tool_id = block.get("id", "")
+                    diff_adds = diff_dels = 0
+                    if redacted_block.get("name") in ("Edit", "Write"):
+                        payload = redacted_block.get("input", {})
+                        old_lines = (payload.get("old_string", "") or "").splitlines(keepends=True)
+                        new_lines = (payload.get("new_string", "") or "").splitlines(keepends=True)
+                        for diff_line in difflib.unified_diff(old_lines, new_lines, lineterm=""):
+                            if diff_line.startswith("+") and not diff_line.startswith("+++"):
+                                diff_adds += 1
+                            elif diff_line.startswith("-") and not diff_line.startswith("---"):
+                                diff_dels += 1
+                    pending_tool = {
+                        "kind": "tool_call",
+                        "ts": ts,
+                        "block": redacted_block,
+                        "result_text": None,
+                        "result_is_error": False,
+                        "diff_adds": diff_adds,
+                        "diff_dels": diff_dels,
+                        "inner_tools": [redactor.redact_obj(inner) for inner in agent_progress.get(tool_id, [])],
+                    }
+                    continue
+
+                if block_type == "tool_result":
+                    result_text = redactor.redact_text(extract_result_text(block))
+                    is_error = bool(block.get("is_error"))
+                    if pending_tool:
+                        pending_tool["result_text"] = result_text
+                        pending_tool["result_is_error"] = is_error
+                        resolved.append(pending_tool)
+                        pending_tool = None
+                    elif result_text and not is_boilerplate_result(result_text, args):
+                        resolved.append(
+                            {
+                                "kind": "tool_output",
+                                "ts": ts,
+                                "text": result_text,
+                                "is_error": is_error,
+                            }
+                        )
+
+        if pending_tool:
+            resolved.append(pending_tool)
+        if msg_output_tokens and len(resolved) > first_item_idx:
+            resolved[first_item_idx]["output_tokens"] = msg_output_tokens
+        if stop_reason == "max_tokens" and len(resolved) > first_item_idx:
+            resolved[-1]["truncated"] = True
+
+    return resolved
+
+
+def _group_turns(resolved: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Phase 3: group resolved items into turns."""
+    turns: list[dict[str, Any]] = []
+    current_turn: dict[str, Any] | None = None
+
+    def flush_turn() -> None:
+        nonlocal current_turn
+        if current_turn and (current_turn.get("user_text") or current_turn.get("items")):
+            turns.append(current_turn)
+        current_turn = None
+
+    for item in resolved:
+        kind = item["kind"]
+        if kind == "compaction":
+            flush_turn()
+            turns.append({"type": "compaction", "ts": item["ts"], "tokens": item.get("tokens", "")})
+            continue
+        if kind == "user":
+            flush_turn()
+            current_turn = {
+                "type": "turn",
+                "user_text": item["text"],
+                "user_ts": item["ts"],
+                "user_is_error": item.get("is_error", False),
+                "items": [],
+                "duration_ms": 0,
+                "has_errors": False,
+                "output_tokens": 0,
+            }
+            continue
+        if kind == "duration":
+            if current_turn:
+                current_turn["duration_ms"] += item["ms"]
+            continue
+
+        if current_turn is None:
+            current_turn = {
+                "type": "turn",
+                "user_text": "",
+                "user_ts": item.get("ts", ""),
+                "items": [],
+                "duration_ms": 0,
+                "has_errors": False,
+                "output_tokens": 0,
+            }
+        current_turn["items"].append(item)
+        current_turn["output_tokens"] += item.get("output_tokens", 0)
+        if item.get("truncated"):
+            current_turn["truncated"] = True
+        if kind == "tool_output" and item.get("is_error"):
+            current_turn["has_errors"] = True
+        if kind == "tool_call" and item.get("result_is_error"):
+            current_turn["has_errors"] = True
+        if kind in ("reply", "thinking") and item.get("is_error"):
+            current_turn["has_errors"] = True
+
+    flush_turn()
+    return turns
+
+
+def parse_transcript(path: str, args: Any) -> dict[str, Any]:
+    records, malformed = read_jsonl_records(path)
+    redactor = Redactor(args)
+
+    # Extract cwd from first record
+    cwd = ""
+    for record in records:
+        if record.get("cwd"):
+            cwd = record["cwd"]
+            break
+
+    items, assistant_entries, agent_progress = _collect_items(records, redactor, args)
+    stats = _compute_token_stats(assistant_entries)
+    resolved = _resolve_assistant_items(items, redactor, args, agent_progress)
+    turns = _group_turns(resolved)
+
+    return {
+        "turns": turns,
+        "turn_count": sum(1 for t in turns if t["type"] == "turn"),
+        "compaction_count": sum(1 for t in turns if t["type"] == "compaction"),
+        "total_tool_calls": sum(
+            1
+            for t in turns
+            if t["type"] == "turn"
+            for item in t["items"]
+            if item["kind"] == "tool_call"
+        ),
+        **stats,
+        "malformed_lines": malformed,
+        "redactor": redactor,
+        "cwd": cwd,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Auto-title
+# ---------------------------------------------------------------------------
+
+
+def auto_title(path: str, turns: list[dict[str, Any]], turn_count: int, data: dict[str, Any]) -> str:
+    cwd = data.get("cwd", "")
+    project, is_git = git_project_name(cwd)
+    data["is_git"] = is_git
+    if not project:
+        # Fallback: derive from JSONL directory name
+        parts = os.path.basename(os.path.dirname(os.path.abspath(path))).split("-")
+        project = parts[-1] if len(parts) > 1 else ""
+    if project in ("", "home", os.path.basename(os.path.expanduser("~"))):
+        project = ""
+    first_user = ""
+    for turn in turns:
+        if turn["type"] == "turn" and turn.get("user_text", "").strip():
+            first_user = turn["user_text"].strip().split("\n")[0][:80]
+            break
+    pieces = [piece for piece in (project, first_user) if piece]
+    return ": ".join(pieces) if pieces else f"Transcript - {turn_count} turns"
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+
+if __name__ == "__main__":
+    raise SystemExit(
+        transcript_main(
+            description="Render Claude Code transcript JSONL files as HTML",
+            default_outdir=os.path.expanduser("~/claude-transcripts"),
+            script_path=os.path.abspath(__file__),
+            jsonl_root=os.path.expanduser("~/.claude/projects"),
+            min_file_size=1024,
+            recursive_glob=False,
+            parse_fn=parse_transcript,
+            auto_title_fn=auto_title,
+            tool_summary_fn=tool_summary,
+            tool_detail_fn=tool_detail,
+            engine_label="Claude Code",
+        )
+    )
